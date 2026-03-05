@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-03-05
+
+### Added
+- Agent provider interface: pluggable support for multiple agent CLIs
+- Gemini provider support (`--approval-mode=yolo` for dangerous mode)
+- Integration tests for app startup and provider configuration
+
 ## [0.1.0] - 2026-03-03
 
 ### Added
