@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shlex
 
 from rich.style import Style
@@ -11,6 +12,7 @@ from textual.widgets import ContentSwitcher, Static, TabbedContent, TabPane
 
 from lazyagent.agent_providers import (
     DEFAULT_AGENT_PROVIDER,
+    ENV_SKIP,
     env_exports,
     get_agent_provider,
 )
@@ -246,13 +248,13 @@ class WorktreePanel(Container):
             placeholder = self.query_one("#terminal-placeholder", Static)
             pane = self.query_one("#terminal-pane", Container)
             placeholder.remove()
+            shell = os.environ.get("SHELL", "bash")
+            unset_vars = " ".join(sorted(ENV_SKIP - {"TERM", "LC_ALL", "HOME", "_"}))
             script = (
                 f"{env_exports()}"
                 f" && cd {shlex.quote(self.worktree_path)}"
-                f" && unset HISTFILE HISTSOCK HISTFD"
-                f" ATUIN_SESSION ATUIN_SOCKET"
-                f" MCFLY_SESSION_ID"
-                f" && exec bash -l"
+                f" && unset {unset_vars}"
+                f" && exec {shlex.quote(shell)} -l"
             )
             terminal = ScrollableTerminal(
                 command=f"bash -c {shlex.quote(script)}",

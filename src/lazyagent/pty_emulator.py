@@ -99,7 +99,11 @@ class PtyEmulator:
             except Exception:
                 pass
             argv = shlex.split(command)
-            env = dict(TERM="xterm", LC_ALL="en_US.UTF-8", HOME=str(Path.home()))
+            env = dict(
+                TERM=os.environ.get("TERM", "xterm"),
+                LC_ALL=os.environ.get("LC_ALL", os.environ.get("LANG", "C.UTF-8")),
+                HOME=str(Path.home()),
+            )
             os.execvpe(argv[0], argv, env)
         return fd
 
