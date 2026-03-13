@@ -266,6 +266,7 @@ class WorktreePanel(Container):
             )
             terminal = ScrollableTerminal(
                 command=f"bash -c {shlex.quote(script)}",
+                restart_on_disconnect=True,
                 id="terminal-widget",
             )
             pane.mount(terminal)

@@ -96,6 +96,7 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         self,
         command: str,
         default_colors: str | None = "system",
+        restart_on_disconnect: bool = False,
         name: str | None = None,
         id: str | None = None,
         classes: str | None = None,
@@ -104,6 +105,7 @@ class ScrollableTerminal(ScrollView, can_focus=True):
 
         self.command = command
         self.default_colors = default_colors
+        self._restart_on_disconnect = restart_on_disconnect
 
         # Default terminal dimensions — updated on resize
         self.ncol = _DEFAULT_COLS
@@ -268,6 +270,15 @@ class ScrollableTerminal(ScrollView, can_focus=True):
 
         Override in subclasses for cleanup.
         """
+        if self._restart_on_disconnect:
+            self.call_later(self._restart_session)
+
+    def _restart_session(self) -> None:
+        """Restart the PTY session after disconnect (e.g. Ctrl+D in shell)."""
+        self._stopped = False
+        self._follow_output = True
+        self.start()
+        self.notify("Shell restarted")
 
     def _after_stdout_processed(self) -> None:
         """Called after each stdout chunk is fed and scroll is updated.
