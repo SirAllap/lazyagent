@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-import subprocess
 from collections import deque
 
 import pyte
@@ -543,7 +542,7 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         self._sel_end = self._widget_to_virtual(event.x, event.y)
         text = self._get_selected_text()
         if text:
-            self._copy_to_clipboard(text)
+            await self._copy_to_clipboard(text)
             self.notify(f"Copied {len(text)} chars")
         else:
             self._sel_start = self._sel_end = None
@@ -605,18 +604,24 @@ class ScrollableTerminal(ScrollView, can_focus=True):
             lines.append(line.rstrip())
         return "\n".join(lines)
 
-    def _copy_to_clipboard(self, text: str) -> None:
-        """Write text to the system clipboard using available CLI tools."""
+    async def _copy_to_clipboard(self, text: str) -> None:
+        """Write text to the system clipboard without blocking the event loop."""
+        encoded = text.encode()
         for cmd in (
             ["wl-copy"],
             ["xclip", "-selection", "clipboard"],
             ["xsel", "--clipboard", "--input"],
         ):
             try:
-                subprocess.run(
-                    cmd, input=text.encode(), timeout=2, check=True, capture_output=True
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
                 )
-                return
+                await asyncio.wait_for(proc.communicate(encoded), timeout=2.0)
+                if proc.returncode == 0:
+                    return
             except Exception:
                 continue
 
