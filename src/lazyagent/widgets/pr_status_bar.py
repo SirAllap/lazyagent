@@ -14,7 +14,7 @@ class PrStatusBar(Static):
         min-height: 5;
         max-height: 9;
         width: 1fr;
-        border: solid $secondary;
+        border: round $secondary;
         border-title-color: $text-muted;
         padding: 0 1;
     }

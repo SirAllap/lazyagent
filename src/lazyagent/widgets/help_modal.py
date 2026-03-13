@@ -9,28 +9,27 @@ from textual.widgets import Static
 
 _HELP_TEXT = """\
 [bold cyan]Navigation[/bold cyan]
-  [bold]j / k[/bold]           Move down / up in sidebar
-  [bold]Ctrl+K[/bold]          Focus sidebar
-  [bold]Ctrl+J[/bold]          Focus agent pane
-  [bold]Ctrl+D[/bold]          Diff pane
-  [bold]Ctrl+L[/bold]          Focus terminal pane
+  [bold yellow]1 / 2 / 3 / 4[/bold yellow]  Focus worktrees / agent / diff / terminal
+  [bold yellow]h / l[/bold yellow]           Prev / next pane
+  [bold yellow]j / k[/bold yellow]           Move down / up in worktrees
 
 [bold cyan]Agents[/bold cyan]
-  [bold]s[/bold]               Spawn agent in selected worktree
-  [bold]x[/bold]               Stop agent in selected worktree
+  [bold yellow]s[/bold yellow]               Spawn agent in selected worktree
+  [bold yellow]x[/bold yellow]               Stop agent in selected worktree
 
 [bold cyan]Worktrees[/bold cyan]
-  [bold]c[/bold]               Create new worktree
-  [bold]d[/bold]               Remove selected worktree
-  [bold]r[/bold]               Refresh worktree list
+  [bold yellow]c[/bold yellow]               Create new worktree
+  [bold yellow]d[/bold yellow]               Remove selected worktree
+  [bold yellow]r[/bold yellow]               Refresh worktree list
 
-[bold cyan]Terminal scrollback[/bold cyan]
-  [bold]PageUp / PageDown[/bold]  Scroll terminal history
-  [bold]Mouse wheel[/bold]        Scroll terminal history
+[bold cyan]Terminal[/bold cyan]
+  [bold yellow]alt+x[/bold yellow]              Exit terminal focus (back to panes)
+  [bold yellow]PageUp / PageDown[/bold yellow]  Scroll terminal history
+  [bold yellow]Mouse wheel[/bold yellow]        Scroll terminal history
 
 [bold cyan]General[/bold cyan]
-  [bold]?[/bold]               Show this help
-  [bold]q[/bold]               Quit\
+  [bold yellow]?[/bold yellow]               Show this help
+  [bold yellow]q[/bold yellow]               Quit\
 """
 
 
@@ -45,8 +44,8 @@ class HelpModal(ModalScreen[None]):
     HelpModal > Vertical {
         width: 52;
         height: auto;
-        border: solid $secondary;
-        background: $surface;
+        border: round $accent;
+        background: transparent;
         padding: 1 2;
     }
 
@@ -72,7 +71,7 @@ class HelpModal(ModalScreen[None]):
             yield Static("Keyboard Shortcuts", classes="modal-title")
             yield Static(_HELP_TEXT)
             yield Static(
-                "[bold cyan]Esc[/bold cyan] / [bold cyan]q[/bold cyan] / [bold cyan]?[/bold cyan]  close",
+                "[bold yellow]Esc[/bold yellow] / [bold yellow]q[/bold yellow] / [bold yellow]?[/bold yellow]  close",
                 classes="modal-hint",
             )
 
