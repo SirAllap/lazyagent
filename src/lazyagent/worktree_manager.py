@@ -147,8 +147,17 @@ class WorktreeManager:
                             status.behind = int(part.split()[1])
 
         for line in lines[1:]:
-            if len(line) >= 2:
-                status.dirty_count += 1
+            if len(line) < 2:
+                continue
+            x, y = line[0], line[1]
+            if x == "?" and y == "?":
+                status.untracked += 1
+            else:
+                if x != " ":
+                    status.staged += 1
+                if y not in (" ", "!"):
+                    status.unstaged += 1
+            status.dirty_count += 1
 
         return status
 
@@ -284,6 +293,21 @@ class WorktreeManager:
             return WorktreeManager._parse_pr_info(result.stdout)
         except (subprocess.TimeoutExpired, OSError):
             return None
+
+    @staticmethod
+    def list_local_branches(repo_path: str | Path) -> list[str]:
+        """Return all local branch names sorted alphabetically."""
+        try:
+            result = subprocess.run(
+                ["git", "branch", "--format=%(refname:short)", "--sort=refname"],
+                capture_output=True,
+                text=True,
+                cwd=str(repo_path),
+                check=True,
+            )
+            return [b.strip() for b in result.stdout.splitlines() if b.strip()]
+        except (subprocess.CalledProcessError, OSError):
+            return []
 
     @staticmethod
     def is_gh_available() -> bool:

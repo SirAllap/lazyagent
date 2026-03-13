@@ -33,15 +33,11 @@ class WorktreeInfo:
     def display_label(self) -> str:
         """Short label for the worktree list.
 
-        Uses ticket ID if available, otherwise branch name, falling back to
-        directory name. Main worktree gets a (main) suffix.
+        Uses ticket ID if available, otherwise the directory name.
+        The branch is always shown on a separate line via display_branch.
         """
-        if self.is_main:
-            return "(main)"
         if self.ticket_id:
             return self.ticket_id
-        if self.branch:
-            return self.display_branch
         return self.name
 
     @property
@@ -64,6 +60,9 @@ class GitStatus:
     """Git working tree status for a worktree."""
 
     dirty_count: int = 0
+    staged: int = 0
+    unstaged: int = 0
+    untracked: int = 0
     ahead: int = 0
     behind: int = 0
     has_upstream: bool = False
