@@ -112,6 +112,7 @@ class LazyAgent(App):
         self._load_worktrees()
         self._load_config()
         self.set_interval(60, self._check_hangs)
+        self.set_interval(10, self._poll_worktrees)
         self.set_interval(30, self._refresh_git_statuses)
         self.set_interval(30, self._refresh_selected_diff)
         self.set_interval(60, self._refresh_pr_status)
@@ -122,7 +123,8 @@ class LazyAgent(App):
         else:
             self._config = Config()
 
-    def _load_worktrees(self) -> None:
+    def _load_worktrees(self, preserve_selection: bool = False) -> None:
+        prev_path = self._selected_worktree.path if (preserve_selection and self._selected_worktree) else None
         try:
             if self.repo_path:
                 root = WorktreeManager(self.repo_path).repo_path
@@ -139,12 +141,27 @@ class LazyAgent(App):
         wt_list.set_worktrees(self.worktrees)
 
         if self.worktrees:
-            first = self.worktrees[0]
-            self._selected_worktree = first
-            wt_list.index = 0
-            self.query_one(CenterPanel).switch_to(first.path)
+            # Restore previous selection if it still exists
+            match = next((wt for wt in self.worktrees if wt.path == prev_path), None) if prev_path else None
+            selected = match or self.worktrees[0]
+            idx = self.worktrees.index(selected)
+            self._selected_worktree = selected
+            wt_list.index = idx
+            self.query_one(CenterPanel).switch_to(selected.path)
 
         self._refresh_git_statuses()
+
+    def _poll_worktrees(self) -> None:
+        """Detect externally added/removed worktrees and reload silently."""
+        if not self._repo_root:
+            return
+        try:
+            new = {wt.path for wt in WorktreeManager(self._repo_root).list()}
+            current = {wt.path for wt in self.worktrees}
+            if new != current:
+                self._load_worktrees(preserve_selection=True)
+        except Exception:
+            pass
 
     def _get_selected_worktree(self) -> WorktreeInfo | None:
         """Get the currently selected worktree."""
