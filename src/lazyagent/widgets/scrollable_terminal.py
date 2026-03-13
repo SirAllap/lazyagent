@@ -529,7 +529,10 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         if not self._selecting:
             return
         event.stop()
-        self._sel_end = self._widget_to_virtual(event.x, event.y)
+        new_pos = self._widget_to_virtual(event.x, event.y)
+        if new_pos == self._sel_end:
+            return  # same cell — skip repaint
+        self._sel_end = new_pos
         self.refresh()
 
     async def on_mouse_up(self, event: events.MouseUp) -> None:
