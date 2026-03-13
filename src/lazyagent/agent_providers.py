@@ -17,16 +17,21 @@ DEFAULT_AGENT_PROVIDER = "claude"
 # Vars that the PTY emulator already sets or that may cause issues if overridden.
 ENV_SKIP = frozenset({
     "TERM", "LC_ALL", "HOME", "_",
-    # History — let the new shell initialize its own session
-    "HISTFILE", "HISTSOCK", "HISTFD",
-    # Atuin (shell history sync) — parent session socket is closed in the PTY
-    "ATUIN_SESSION", "ATUIN_SOCKET",
-    # McFly (alternative history tool)
-    "MCFLY_SESSION_ID",
     # Let .bashrc build its own PROMPT_COMMAND — the parent's may reference
     # dead pipe fds from history/preexec tools
     "PROMPT_COMMAND",
 })
+
+# Prefixes of variables that must never leak into child PTY shells.
+# These reference parent-shell state (sockets, FDs, internal flags) that
+# becomes stale or broken inside the forked PTY, causing errors like
+# "bash: history: write error: Broken pipe".
+_ENV_SKIP_PREFIXES = (
+    "HIST",        # HISTFILE, HISTFD, HISTSOCK, HISTSIZE, … — let the new shell use defaults
+    "ATUIN_",      # Atuin history daemon (session, socket, history-id, …)
+    "MCFLY_",      # McFly history tool
+    "__",          # Internal shell state (bash-preexec __bp_*, __atuin_*, etc.)
+)
 
 
 @dataclass(frozen=True)
@@ -80,6 +85,8 @@ def env_exports() -> str:
     parts = []
     for key, val in os.environ.items():
         if key in ENV_SKIP:
+            continue
+        if key.startswith(_ENV_SKIP_PREFIXES):
             continue
         if not _VALID_IDENT.match(key):
             continue
