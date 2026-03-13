@@ -21,6 +21,8 @@ class WorktreeListItem(ListItem):
         self.worktree = worktree
         self._agent_state = agent_state or AgentState()
         self._git_status: GitStatus | None = None
+        self._compact = False
+        self._compact_index = 0
         if worktree.is_main:
             self.add_class("--main")
 
@@ -38,11 +40,17 @@ class WorktreeListItem(ListItem):
         yield Static(self._build_label(), markup=True, id="wt-label")
 
     def _build_label(self) -> str:
+        if self._compact:
+            return self._build_compact_label()
         label = self.worktree.display_label
         branch = self.worktree.display_branch
         status = self._status_line()
         git = self._git_status_line()
         return f"[bold]{label}[/bold]\n[dim]{branch}[/dim]\n{status}\n{git}"
+
+    def _build_compact_label(self) -> str:
+        idx = self._compact_index + 1
+        return f"[bold]WT{idx}[/bold]"
 
     def _status_line(self) -> str:
         match self._agent_state.status:
@@ -76,6 +84,12 @@ class WorktreeListItem(ListItem):
             self.query_one("#wt-label", Static).update(self._build_label())
         except Exception:
             pass
+
+    def set_compact(self, compact: bool) -> None:
+        if self._compact == compact:
+            return
+        self._compact = compact
+        self._refresh_label()
 
     def update_agent_state(self, state: AgentState) -> None:
         self._agent_state = state
@@ -130,6 +144,14 @@ class WorktreeList(ListView):
         self.clear()
         for wt in worktrees:
             self.append(WorktreeListItem(wt))
+
+    def set_compact(self, compact: bool) -> None:
+        idx = 0
+        for child in self.children:
+            if isinstance(child, WorktreeListItem):
+                child._compact_index = idx
+                child.set_compact(compact)
+                idx += 1
 
     def update_agent_state(self, worktree_path: str, state: AgentState) -> None:
         """Find the item for the given worktree path and update its agent state."""
