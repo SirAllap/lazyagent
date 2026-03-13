@@ -33,6 +33,8 @@ from lazyagent.styles import SCROLLBAR_CSS
 # ---------------------------------------------------------------------------
 
 _DEFAULT_MAX_SCROLLBACK = 5000
+_DEFAULT_COLS = 80
+_DEFAULT_ROWS = 24
 
 
 class ScrollbackScreen(pyte.Screen):
@@ -104,8 +106,8 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         self.default_colors = default_colors
 
         # Default terminal dimensions — updated on resize
-        self.ncol = 80
-        self.nrow = 24
+        self.ncol = _DEFAULT_COLS
+        self.nrow = _DEFAULT_ROWS
         self.mouse_tracking = False
 
         # PTY emulator (created in start())
@@ -117,7 +119,7 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         self._follow_output = True  # tracks auto-scroll intent across visibility
 
         # pyte screen + stream
-        self._screen = ScrollbackScreen(self.ncol, self.nrow)
+        self._screen = ScrollbackScreen(_DEFAULT_COLS, _DEFAULT_ROWS)
         self.stream = pyte.Stream(self._screen)
 
         # Key translation table (same as textual-terminal)
@@ -420,17 +422,6 @@ class ScrollableTerminal(ScrollView, can_focus=True):
             style = Style()
 
         return style
-
-    # Keep these as instance methods for MonitoredTerminal compatibility
-    # (MonitoredTerminal.recv references self.char_rich_style etc.)
-    def char_rich_style(self, char: Char) -> Style:
-        return self._char_rich_style(char)
-
-    def char_style_cmp(self, given: Char, other: Char) -> bool:
-        return self._char_style_cmp(given, other)
-
-    def detect_color(self, color: str) -> str:
-        return self._detect_color(color)
 
     # ------------------------------------------------------------------
     # Input handling

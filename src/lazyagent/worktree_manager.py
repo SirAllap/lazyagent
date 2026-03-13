@@ -7,6 +7,9 @@ from pathlib import Path
 from lazyagent.models import CiCheck, GitStatus, PrInfo, WorktreeInfo
 
 
+_REFS_HEADS = "refs/heads/"
+
+
 class WorktreeManagerError(Exception):
     """Raised when worktree operations fail."""
 
@@ -100,12 +103,8 @@ class WorktreeManager:
                 elif line.startswith("HEAD "):
                     head = line[len("HEAD "):]
                 elif line.startswith("branch "):
-                    # Strip refs/heads/ prefix
                     ref = line[len("branch "):]
-                    if ref.startswith("refs/heads/"):
-                        branch = ref[len("refs/heads/"):]
-                    else:
-                        branch = ref
+                    branch = ref[len(_REFS_HEADS):] if ref.startswith(_REFS_HEADS) else ref
                 elif line == "bare":
                     is_bare = True
                 # "detached" lines are ignored — branch stays None

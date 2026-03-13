@@ -4,6 +4,9 @@ from textual.widgets import Static
 
 from lazyagent.models import PrInfo
 
+_TITLE_MAX_LEN = 34
+_URL_PREFIXES = ("https://github.com/", "https://", "http://")
+
 
 class PrStatusBar(Static):
     """Shows PR status, review state, and CI summary below the sidebar."""
@@ -48,8 +51,8 @@ class PrStatusBar(Static):
 
         # Line 2: title (truncated)
         title = pr_info.title
-        if len(title) > 34:
-            title = title[:31] + "\u2026"
+        if len(title) > _TITLE_MAX_LEN:
+            title = title[:_TITLE_MAX_LEN - 3] + "\u2026"
         lines.append(title)
 
         # Line 3: CI checks
@@ -80,7 +83,7 @@ class PrStatusBar(Static):
         # URL (clickable via @click action)
         if pr_info.url:
             short_url = pr_info.url
-            for prefix in ("https://github.com/", "https://", "http://"):
+            for prefix in _URL_PREFIXES:
                 if short_url.startswith(prefix):
                     short_url = short_url[len(prefix):]
                     break

@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import time
 
+from lazyagent.agent_providers import SENTINEL_TEXT
 from lazyagent.messages import AgentExited, AgentStatusChanged
 from lazyagent.models import AgentStatus
 from lazyagent.widgets.scrollable_terminal import ScrollableTerminal
 
-_SENTINEL = "your turn"
+_SENTINEL = SENTINEL_TEXT
 _HANG_SECONDS = 600  # 10 minutes
 _SCAN_DEBOUNCE_SECONDS = 0.15
 

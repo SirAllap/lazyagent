@@ -36,9 +36,7 @@ class WorktreeInfo:
         Uses ticket ID if available, otherwise the directory name.
         The branch is always shown on a separate line via display_branch.
         """
-        if self.ticket_id:
-            return self.ticket_id
-        return self.name
+        return self.ticket_id or self.name
 
     @property
     def display_branch(self) -> str:

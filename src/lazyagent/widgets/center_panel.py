@@ -16,28 +16,34 @@ from lazyagent.agent_providers import (
     env_exports,
     get_agent_provider,
 )
+
+# Vars set by the PTY emulator itself — exclude from the shell-level unset
+_PTY_MANAGED_VARS = frozenset({"TERM", "LC_ALL", "HOME", "_"})
+_TERMINAL_UNSET_VARS = " ".join(sorted(ENV_SKIP - _PTY_MANAGED_VARS))
 from lazyagent.models import GitStatus
 from lazyagent.styles import SCROLLBAR_CSS
 from lazyagent.widgets.monitored_terminal import MonitoredTerminal
 from lazyagent.widgets.scrollable_terminal import ScrollableTerminal
 
 
+_DIFF_STYLES: list[tuple[tuple[str, ...], Style]] = [
+    (("diff ", "index "), Style(dim=True)),
+    (("--- ", "+++ "), Style(bold=True)),
+    (("@@",), Style(color="cyan", bold=True)),
+    (("+",), Style(color="green")),
+    (("-",), Style(color="red")),
+]
+
+
 def _colorize_diff(diff_text: str) -> Text:
     """Parse a unified diff and return a Rich Text with syntax colours."""
     t = Text(no_wrap=False, overflow="fold")
     for line in diff_text.splitlines():
-        if line.startswith("diff ") or line.startswith("index "):
-            t.append(line + "\n", style=Style(dim=True))
-        elif line.startswith("--- ") or line.startswith("+++ "):
-            t.append(line + "\n", style=Style(bold=True))
-        elif line.startswith("@@"):
-            t.append(line + "\n", style=Style(color="cyan", bold=True))
-        elif line.startswith("+"):
-            t.append(line + "\n", style=Style(color="green"))
-        elif line.startswith("-"):
-            t.append(line + "\n", style=Style(color="red"))
-        else:
-            t.append(line + "\n")
+        style = next(
+            (s for prefixes, s in _DIFF_STYLES if line.startswith(prefixes)),
+            Style(),
+        )
+        t.append(line + "\n", style=style)
     return t
 
 
@@ -249,11 +255,10 @@ class WorktreePanel(Container):
             pane = self.query_one("#terminal-pane", Container)
             placeholder.remove()
             shell = os.environ.get("SHELL", "bash")
-            unset_vars = " ".join(sorted(ENV_SKIP - {"TERM", "LC_ALL", "HOME", "_"}))
             script = (
                 f"{env_exports()}"
                 f" && cd {shlex.quote(self.worktree_path)}"
-                f" && unset {unset_vars}"
+                f" && unset {_TERMINAL_UNSET_VARS}"
                 f" && exec {shlex.quote(shell)} -l"
             )
             terminal = ScrollableTerminal(
@@ -262,14 +267,6 @@ class WorktreePanel(Container):
             )
             pane.mount(terminal)
             terminal.start()
-        except Exception:
-            pass
-
-    def update_git_status(self, git_status: GitStatus, branch: str, short_head: str = "") -> None:
-        """Update the git info bar for this panel."""
-        try:
-            bar = self.query_one("#git-info-bar", GitInfoBar)
-            bar.update_status(git_status, branch, short_head)
         except Exception:
             pass
 

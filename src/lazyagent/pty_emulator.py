@@ -31,8 +31,8 @@ class PtyEmulator:
     """Manages a PTY subprocess with async I/O queues."""
 
     def __init__(self, command: str) -> None:
-        self.ncol = 80
-        self.nrow = 24
+        self.ncol = 80  # overridden by ScrollableTerminal.on_resize
+        self.nrow = 24  # overridden by ScrollableTerminal.on_resize
         self.data_or_disconnect: str | None = None
         self.run_task: asyncio.Task | None = None
         self.send_task: asyncio.Task | None = None

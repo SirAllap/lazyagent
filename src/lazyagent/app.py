@@ -22,6 +22,7 @@ from lazyagent.widgets.prompt_modal import SpawnModal
 from lazyagent.widgets.worktree_list import WorktreeList, WorktreeListItem
 from lazyagent.worktree_manager import WorktreeManager, WorktreeManagerError, find_repo_root
 
+_CMD_SENT_MSG = "Command sent to terminal — press r to refresh when done"
 _SEP = " [dim yellow]|[/dim yellow] "
 _KEY_HINTS = (
     " [yellow]Prev/Next:[/yellow] [bold yellow]h/l[/bold yellow]"
@@ -361,11 +362,13 @@ class LazyAgent(App):
     _PANE_ACTIONS = ["focus_sidebar", "focus_agent", "focus_diff", "focus_terminal"]
 
     def action_next_pane(self) -> None:
-        next_p = (self._current_focus_pane % 4) + 1
+        n = len(self._PANE_ACTIONS)
+        next_p = (self._current_focus_pane % n) + 1
         getattr(self, f"action_{self._PANE_ACTIONS[next_p - 1]}")()
 
     def action_prev_pane(self) -> None:
-        prev_p = ((self._current_focus_pane - 2) % 4) + 1
+        n = len(self._PANE_ACTIONS)
+        prev_p = ((self._current_focus_pane - 2) % n) + 1
         getattr(self, f"action_{self._PANE_ACTIONS[prev_p - 1]}")()
 
     def action_refresh(self) -> None:
@@ -404,7 +407,7 @@ class LazyAgent(App):
                 repo=self._repo_root,
             )
             self._send_to_terminal(cmd)
-            self.notify("Command sent to terminal — press r to refresh when done", timeout=5)
+            self.notify(_CMD_SENT_MSG, timeout=5)
         else:
             try:
                 manager = WorktreeManager(self._repo_root)
@@ -455,7 +458,7 @@ class LazyAgent(App):
             )
             self._send_to_terminal(f"cd {self._repo_root} && {cmd}")
             self.action_focus_terminal()
-            self.notify("Command sent to terminal — press r to refresh when done", timeout=5)
+            self.notify(_CMD_SENT_MSG, timeout=5)
         else:
             try:
                 manager = WorktreeManager(self._repo_root)
@@ -467,9 +470,12 @@ class LazyAgent(App):
 
     def _send_to_terminal(self, cmd: str) -> None:
         """Send a command string to the active worktree's terminal pane."""
+        def _no_terminal() -> None:
+            self.notify(f"No terminal available. Run manually:\n{cmd}", severity="warning", timeout=8)
+
         wt = self._get_selected_worktree()
         if not wt:
-            self.notify(f"No terminal available. Run manually:\n{cmd}", severity="warning", timeout=8)
+            _no_terminal()
             return
         panel = self.query_one(CenterPanel).get_panel(wt.path)
         if panel is None:
@@ -479,7 +485,7 @@ class LazyAgent(App):
             # send_queue is an asyncio.Queue — must use put_nowait from sync context
             terminal.send_queue.put_nowait(["stdin", cmd + "\n"])
         except Exception:
-            self.notify(f"No terminal available. Run manually:\n{cmd}", severity="warning", timeout=8)
+            _no_terminal()
 
     def action_open_pr_url(self, url: str) -> None:
         self.open_url(url)

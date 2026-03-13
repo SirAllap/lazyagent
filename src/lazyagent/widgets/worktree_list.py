@@ -45,16 +45,15 @@ class WorktreeListItem(ListItem):
         return f"[bold]{label}[/bold]\n[dim]{branch}[/dim]\n{status}\n{git}"
 
     def _status_line(self) -> str:
-        state = self._agent_state
-        if state.status == AgentStatus.NO_AGENT:
-            return "[dim]---[/dim]"
-        elif state.status == AgentStatus.RUNNING:
-            return "[green]running[/green]"
-        elif state.status == AgentStatus.WAITING:
-            return "[bold yellow]waiting[/bold yellow]"
-        elif state.status == AgentStatus.POSSIBLY_HANGED:
-            return "[bold red]hanged?[/bold red]"
-        return "[dim]---[/dim]"
+        match self._agent_state.status:
+            case AgentStatus.RUNNING:
+                return "[green]running[/green]"
+            case AgentStatus.WAITING:
+                return "[bold yellow]waiting[/bold yellow]"
+            case AgentStatus.POSSIBLY_HANGED:
+                return "[bold red]hanged?[/bold red]"
+            case _:
+                return "[dim]---[/dim]"
 
     def _git_status_line(self) -> str:
         gs = self._git_status
@@ -72,23 +71,19 @@ class WorktreeListItem(ListItem):
                 parts.append(f"[red]\u2193{gs.behind}[/red]")
         return " ".join(parts)
 
-    def update_agent_state(self, state: AgentState) -> None:
-        """Re-render the label with updated agent state."""
-        self._agent_state = state
+    def _refresh_label(self) -> None:
         try:
-            label_widget = self.query_one("#wt-label", Static)
-            label_widget.update(self._build_label())
+            self.query_one("#wt-label", Static).update(self._build_label())
         except Exception:
             pass
 
+    def update_agent_state(self, state: AgentState) -> None:
+        self._agent_state = state
+        self._refresh_label()
+
     def update_git_status(self, git_status: GitStatus) -> None:
-        """Re-render the label with updated git status."""
         self._git_status = git_status
-        try:
-            label_widget = self.query_one("#wt-label", Static)
-            label_widget.update(self._build_label())
-        except Exception:
-            pass
+        self._refresh_label()
 
 
 class WorktreeList(ListView):
@@ -116,11 +111,6 @@ class WorktreeList(ListView):
         color: $text;
     }
     WorktreeList WorktreeListItem.-highlight {
-        background: transparent;
-        border: round $accent;
-        color: $text;
-    }
-    WorktreeList WorktreeListItem.-highlight.--main {
         background: transparent;
         border: round $accent;
         color: $text;
