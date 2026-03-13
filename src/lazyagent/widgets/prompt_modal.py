@@ -18,8 +18,8 @@ class SpawnModal(ModalScreen[bool | None]):
     SpawnModal > Vertical {
         width: 50;
         height: auto;
-        border: solid $secondary;
-        background: $surface;
+        border: round $accent;
+        background: transparent;
         padding: 1 2;
     }
 

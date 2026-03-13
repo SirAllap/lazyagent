@@ -15,6 +15,7 @@ import fcntl
 import os
 import pty
 import re
+import resource
 import shlex
 import signal
 import struct
@@ -30,8 +31,8 @@ class PtyEmulator:
     """Manages a PTY subprocess with async I/O queues."""
 
     def __init__(self, command: str) -> None:
-        self.ncol = 80
-        self.nrow = 24
+        self.ncol = 80  # overridden by ScrollableTerminal.on_resize
+        self.nrow = 24  # overridden by ScrollableTerminal.on_resize
         self.data_or_disconnect: str | None = None
         self.run_task: asyncio.Task | None = None
         self.send_task: asyncio.Task | None = None
@@ -88,8 +89,21 @@ class PtyEmulator:
         """Fork a PTY and exec the command in the child."""
         self.pid, fd = pty.fork()
         if self.pid == 0:
+            # Close all inherited file descriptors above stderr.
+            # The parent process (and its shell) may have open pipe fds
+            # (e.g. from atuin, mcfly, or other history tools) that become
+            # broken in the child, causing "history: write error: Broken pipe".
+            try:
+                max_fd = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+                os.closerange(3, max_fd)
+            except Exception:
+                pass
             argv = shlex.split(command)
-            env = dict(TERM="xterm", LC_ALL="en_US.UTF-8", HOME=str(Path.home()))
+            env = dict(
+                TERM=os.environ.get("TERM", "xterm"),
+                LC_ALL=os.environ.get("LC_ALL", os.environ.get("LANG", "C.UTF-8")),
+                HOME=str(Path.home()),
+            )
             os.execvpe(argv[0], argv, env)
         return fd
 

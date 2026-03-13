@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import os
 import shlex
 
+from rich.style import Style
 from rich.text import Text
-from textual.containers import Container, VerticalScroll
+from textual import events
+from textual.binding import Binding
+from textual.containers import Container, Horizontal
+from textual.geometry import Size
+from textual.scroll_view import ScrollView
+from textual.strip import Strip
 from textual.widgets import ContentSwitcher, Static, TabbedContent, TabPane
 
 from lazyagent.agent_providers import (
@@ -17,56 +25,423 @@ from lazyagent.styles import SCROLLBAR_CSS
 from lazyagent.widgets.monitored_terminal import MonitoredTerminal
 from lazyagent.widgets.scrollable_terminal import ScrollableTerminal
 
+# Unset all history/preexec vars that the login shell may inherit.
+# Uses bash ${!prefix@} expansion to catch everything at runtime.
+_TERMINAL_UNSET_CMD = (
+    'unset PROMPT_COMMAND ${!HIST@} ${!ATUIN_@} ${!MCFLY_@} ${!__@} 2>/dev/null;'
+    ' true'
+)
+
+
+_DIFF_STYLES: list[tuple[tuple[str, ...], Style]] = [
+    (("diff ", "index "), Style(dim=True)),
+    (("--- ", "+++ "), Style(bold=True)),
+    (("@@",), Style(color="cyan", bold=True)),
+    (("+",), Style(color="green")),
+    (("-",), Style(color="red")),
+]
+
+
+class DiffView(ScrollView, can_focus=True):
+    """Diff viewer with vim cursor, visual mode (v/V/Ctrl+V), and yank."""
+
+    BINDINGS = [
+        Binding("j", "cursor_down", show=False),
+        Binding("k", "cursor_up", show=False),
+        Binding("h", "cursor_left", show=False),
+        Binding("l", "cursor_right", show=False),
+        Binding("g", "go_top", show=False),
+        Binding("G", "go_bottom", show=False),
+        Binding("ctrl+d", "half_down", show=False),
+        Binding("ctrl+u", "half_up", show=False),
+        Binding("v", "visual_char", show=False),
+        Binding("V", "visual_line", show=False),
+        Binding("y", "yank", show=False),
+        Binding("escape", "escape_visual", show=False),
+    ]
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._lines: list[str] = []
+        self._cursor_row: int = 0
+        self._cursor_col: int = 0
+        self._mode: str | None = None  # None=normal, "char", "line", "block"
+        self._anchor: tuple[int, int] = (0, 0)
+
+    # ------------------------------------------------------------------
+    # Content management
+    # ------------------------------------------------------------------
+
+    def set_diff(self, diff_text: str) -> None:
+        """Replace the diff content.  Preserves cursor if unchanged."""
+        new_lines = diff_text.splitlines() if diff_text else []
+        if new_lines == self._lines:
+            return
+        self._lines = new_lines
+        self._mode = None
+        self._cursor_row = min(self._cursor_row, self._max_row)
+        self._clamp_col()
+        self._update_virtual_size()
+        self.refresh()
+
+    def on_mount(self) -> None:
+        self._update_virtual_size()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._update_virtual_size()
+
+    def _update_virtual_size(self) -> None:
+        w = self.scrollable_content_region.width or self.size.width or 80
+        self.virtual_size = Size(w, max(len(self._lines), 1))
+
+    # ------------------------------------------------------------------
+    # Cursor helpers
+    # ------------------------------------------------------------------
+
+    @property
+    def _max_row(self) -> int:
+        return max(0, len(self._lines) - 1)
+
+    def _line_len(self, row: int) -> int:
+        if 0 <= row < len(self._lines):
+            return len(self._lines[row])
+        return 0
+
+    def _clamp_col(self) -> None:
+        max_c = max(0, self._line_len(self._cursor_row) - 1)
+        self._cursor_col = max(0, min(self._cursor_col, max_c))
+
+    def _move_cursor(self, row: int | None = None, col: int | None = None) -> None:
+        if row is not None:
+            self._cursor_row = max(0, min(row, self._max_row))
+        if col is not None:
+            self._cursor_col = col
+        self._clamp_col()
+        self._scroll_cursor_visible()
+        self.refresh()
+
+    def _scroll_cursor_visible(self) -> None:
+        sy = self.scroll_offset.y
+        h = self.scrollable_content_region.height or self.size.height or 1
+        if self._cursor_row < sy:
+            self.scroll_to(y=self._cursor_row, animate=False)
+        elif self._cursor_row >= sy + h:
+            self.scroll_to(y=self._cursor_row - h + 1, animate=False)
+
+    # ------------------------------------------------------------------
+    # Actions — movement
+    # ------------------------------------------------------------------
+
+    def action_cursor_down(self) -> None:
+        self._move_cursor(row=self._cursor_row + 1)
+
+    def action_cursor_up(self) -> None:
+        self._move_cursor(row=self._cursor_row - 1)
+
+    def action_cursor_left(self) -> None:
+        self._move_cursor(col=self._cursor_col - 1)
+
+    def action_cursor_right(self) -> None:
+        self._move_cursor(col=self._cursor_col + 1)
+
+    def action_go_top(self) -> None:
+        self._move_cursor(row=0, col=0)
+
+    def action_go_bottom(self) -> None:
+        self._move_cursor(row=self._max_row, col=0)
+
+    def action_half_down(self) -> None:
+        h = self.scrollable_content_region.height or self.size.height or 1
+        self._move_cursor(row=self._cursor_row + h // 2)
+
+    def action_half_up(self) -> None:
+        h = self.scrollable_content_region.height or self.size.height or 1
+        self._move_cursor(row=self._cursor_row - h // 2)
+
+    # ------------------------------------------------------------------
+    # Actions — visual modes & yank
+    # ------------------------------------------------------------------
+
+    def action_visual_char(self) -> None:
+        if self._mode == "char":
+            self._mode = None
+        else:
+            self._mode = "char"
+            self._anchor = (self._cursor_row, self._cursor_col)
+        self.refresh()
+
+    def action_visual_line(self) -> None:
+        if self._mode == "line":
+            self._mode = None
+        else:
+            self._mode = "line"
+            self._anchor = (self._cursor_row, self._cursor_col)
+        self.refresh()
+
+    def action_escape_visual(self) -> None:
+        self._mode = None
+        self.refresh()
+
+    async def action_yank(self) -> None:
+        if self._mode is None:
+            return
+        text = self._get_selected_text()
+        if text:
+            await self._copy_to_clipboard(text)
+            self.notify(f"Yanked {len(text)} chars")
+        self._mode = None
+        self.refresh()
+
+    # ------------------------------------------------------------------
+    # Key handler for special keys (Ctrl+V, $, 0)
+    # ------------------------------------------------------------------
+
+    async def on_key(self, event: events.Key) -> None:
+        if event.key == "ctrl+v":
+            event.stop()
+            event.prevent_default()
+            if self._mode == "block":
+                self._mode = None
+            else:
+                self._mode = "block"
+                self._anchor = (self._cursor_row, self._cursor_col)
+            self.refresh()
+            return
+        if event.character == "$":
+            event.stop()
+            event.prevent_default()
+            self._move_cursor(col=max(0, self._line_len(self._cursor_row) - 1))
+            return
+        if event.character == "0":
+            event.stop()
+            event.prevent_default()
+            self._move_cursor(col=0)
+            return
+
+    # ------------------------------------------------------------------
+    # Focus events — redraw cursor visibility
+    # ------------------------------------------------------------------
+
+    def on_focus(self, event: events.Focus) -> None:
+        self.refresh()
+
+    def on_blur(self, event: events.Blur) -> None:
+        self.refresh()
+
+    # ------------------------------------------------------------------
+    # Line API rendering
+    # ------------------------------------------------------------------
+
+    def render_line(self, y: int) -> Strip:
+        scroll_x, scroll_y = self.scroll_offset
+        virtual_y = scroll_y + y
+        width = self.scrollable_content_region.width or self.size.width or 80
+
+        if virtual_y >= len(self._lines):
+            if virtual_y == 0 and not self._lines:
+                # Show placeholder when empty
+                txt = Text("No changes", style=Style(dim=True))
+                txt = txt.plain.center(width)
+                return Strip(list(Text(txt, style=Style(dim=True)).render(self.app.console)))
+            return Strip.blank(width, self.rich_style)
+
+        raw = self._lines[virtual_y]
+        style = next(
+            (s for prefixes, s in _DIFF_STYLES if raw.startswith(prefixes)),
+            Style(),
+        )
+        # Pad to full width so cursor/selection is visible on short lines
+        display = raw.ljust(width)
+        text = Text(display, no_wrap=True)
+        text.stylize(style, 0, len(display))
+
+        if self.has_focus:
+            # Selection highlight (visual mode)
+            if self._mode is not None:
+                sel = self._sel_cols_for_row(virtual_y, width)
+                if sel:
+                    c0, c1 = sel
+                    text.stylize(Style(reverse=True), c0, min(c1, len(display)))
+
+            # Cursor — only in normal mode (in visual mode it blends
+            # into the selection highlight, matching vim behaviour)
+            if self._mode is None and virtual_y == self._cursor_row:
+                cx = self._cursor_col
+                if 0 <= cx < len(display):
+                    text.stylize(Style(reverse=True), cx, cx + 1)
+
+        segments = list(text.render(self.app.console))
+        return Strip(segments).crop_extend(scroll_x, scroll_x + width, self.rich_style)
+
+    # ------------------------------------------------------------------
+    # Selection helpers
+    # ------------------------------------------------------------------
+
+    def _sel_cols_for_row(self, row: int, width: int) -> tuple[int, int] | None:
+        """Return (col_start, col_end) to highlight on *row*, or None."""
+        if self._mode is None:
+            return None
+        ar, ac = self._anchor
+        cr, cc = self._cursor_row, self._cursor_col
+
+        if self._mode == "line":
+            r0, r1 = min(ar, cr), max(ar, cr)
+            return (0, width) if r0 <= row <= r1 else None
+
+        if self._mode == "block":
+            r0, r1 = min(ar, cr), max(ar, cr)
+            c0, c1 = min(ac, cc), max(ac, cc)
+            return (c0, c1 + 1) if r0 <= row <= r1 else None
+
+        # char mode
+        start, end = (ar, ac), (cr, cc)
+        if start > end:
+            start, end = end, start
+        sr, sc = start
+        er, ec = end
+        if row < sr or row > er:
+            return None
+        if sr == er:
+            return (sc, ec + 1)
+        if row == sr:
+            return (sc, width)
+        if row == er:
+            return (0, ec + 1)
+        return (0, width)
+
+    def _get_selected_text(self) -> str:
+        """Extract the text covered by the current visual selection."""
+        if self._mode is None or not self._lines:
+            return ""
+        ar, ac = self._anchor
+        cr, cc = self._cursor_row, self._cursor_col
+
+        if self._mode == "line":
+            r0, r1 = min(ar, cr), max(ar, cr)
+            return "\n".join(self._lines[r] for r in range(r0, r1 + 1) if r < len(self._lines))
+
+        if self._mode == "block":
+            r0, r1 = min(ar, cr), max(ar, cr)
+            c0, c1 = min(ac, cc), max(ac, cc)
+            parts: list[str] = []
+            for r in range(r0, r1 + 1):
+                ln = self._lines[r] if r < len(self._lines) else ""
+                parts.append(ln[c0 : c1 + 1].rstrip())
+            return "\n".join(parts)
+
+        # char mode
+        start, end = (ar, ac), (cr, cc)
+        if start > end:
+            start, end = end, start
+        sr, sc = start
+        er, ec = end
+        if sr == er:
+            return self._lines[sr][sc : ec + 1]
+        lines: list[str] = [self._lines[sr][sc:]]
+        for r in range(sr + 1, er):
+            lines.append(self._lines[r])
+        lines.append(self._lines[er][: ec + 1])
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Clipboard
+    # ------------------------------------------------------------------
+
+    async def _copy_to_clipboard(self, text: str) -> None:
+        encoded = text.encode()
+        for cmd in (
+            ["wl-copy"],
+            ["xclip", "-selection", "clipboard"],
+            ["xsel", "--clipboard", "--input"],
+        ):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await asyncio.wait_for(proc.communicate(encoded), timeout=2.0)
+                if proc.returncode == 0:
+                    return
+            except Exception:
+                continue
+
 
 def _panel_id(worktree_path: str) -> str:
     """Derive a DOM-safe ID from a worktree path."""
     return "wp-" + hashlib.md5(worktree_path.encode()).hexdigest()[:8]
 
 
-class GitInfoBar(Static):
-    """Thin bar showing git status for the current worktree."""
+class GitInfoBar(Horizontal):
+    """Full-width status bar: branch/hash/subject on the left, git stats on the right."""
 
     DEFAULT_CSS = """
     GitInfoBar {
-        height: 1;
+        height: 3;
         width: 1fr;
-        background: $boost;
-        color: $text;
+        background: transparent;
+        border: round $secondary;
+        border-title-color: $text-muted;
+    }
+    GitInfoBar #git-left {
+        width: 1fr;
+        height: 1fr;
         padding: 0 1;
+        color: $text;
+    }
+    GitInfoBar #git-right {
+        width: auto;
+        height: 1fr;
+        padding: 0 1;
+        color: $text;
     }
     """
 
-    def __init__(self, **kwargs) -> None:
-        super().__init__("", markup=True, **kwargs)
+    def compose(self):
+        yield Static("", id="git-left", markup=True)
+        yield Static("", id="git-right", markup=True)
 
-    def update_status(self, git_status: GitStatus, branch: str) -> None:
-        """Re-render the bar with new git info."""
-        # Truncate branch and commit subject
-        b = branch[:30] + "\u2026" if len(branch) > 30 else branch
+    def on_mount(self) -> None:
+        self.border_title = "Status"
+
+    def update_status(self, git_status: GitStatus, branch: str, short_head: str = "") -> None:
+        b = branch[:35] + "\u2026" if len(branch) > 35 else branch
         subj = git_status.last_commit_subject
-        subj = subj[:50] + "\u2026" if len(subj) > 50 else subj
 
-        parts: list[str] = [f"[bold]{b}[/bold]"]
+        left_parts: list[str] = [f"[bold]{b}[/bold]"]
+        if short_head:
+            left_parts.append(f"[dim]{short_head}[/dim]")
         if subj:
-            parts.append(f"[dim]{subj}[/dim]")
+            left_parts.append(f"[dim]{subj}[/dim]")
 
-        if git_status.dirty_count > 0:
-            parts.append(f"[yellow]*{git_status.dirty_count} dirty[/yellow]")
+        right_parts: list[str] = []
+        if git_status.dirty_count == 0:
+            right_parts.append("[green]\u2713 clean[/green]")
         else:
-            parts.append("[green]clean[/green]")
+            if git_status.staged:
+                right_parts.append(f"[green]+{git_status.staged}[/green]")
+            if git_status.unstaged:
+                right_parts.append(f"[yellow]~{git_status.unstaged}[/yellow]")
+            if git_status.untracked:
+                right_parts.append(f"[dim]?{git_status.untracked}[/dim]")
 
         if git_status.has_upstream:
             if git_status.ahead == 0 and git_status.behind == 0:
-                parts.append("[green]in sync[/green]")
+                right_parts.append("[green]\u21910 \u21930[/green]")
             else:
                 if git_status.ahead:
-                    parts.append(f"[cyan]\u2191{git_status.ahead}[/cyan]")
+                    right_parts.append(f"[cyan]\u2191{git_status.ahead}[/cyan]")
                 if git_status.behind:
-                    parts.append(f"[red]\u2193{git_status.behind}[/red]")
+                    right_parts.append(f"[red]\u2193{git_status.behind}[/red]")
         else:
-            parts.append("[dim]no upstream[/dim]")
+            right_parts.append("[dim]no upstream[/dim]")
 
-        self.update("  ".join(parts))
+        try:
+            self.query_one("#git-left", Static).update("  ".join(left_parts))
+            self.query_one("#git-right", Static).update("  ".join(right_parts))
+        except Exception:
+            pass
 
 
 class WorktreePanel(Container):
@@ -80,12 +455,15 @@ class WorktreePanel(Container):
     }}
     #agent-tabs {{
         height: 2fr;
-        border: solid $secondary;
+        border: round $secondary;
         border-title-color: $text-muted;
     }}
     #agent-tabs:focus-within {{
-        border: solid $accent;
+        border: round $accent;
         border-title-color: $accent;
+    }}
+    #agent-tabs Tabs {{
+        display: none;
     }}
     #agent-tab {{
         height: 1fr;
@@ -93,26 +471,21 @@ class WorktreePanel(Container):
     #diff-tab {{
         height: 1fr;
     }}
-    #diff-scroll {{
+    DiffView {{
         height: 1fr;
         width: 1fr;
         overflow-y: auto;
         overflow-x: hidden;
-        background: $background;
+        background: transparent;
 {SCROLLBAR_CSS}
-    }}
-    #diff-content {{
-        width: 1fr;
-        height: auto;
-        padding: 0 1;
     }}
     #terminal-pane {{
         height: 1fr;
-        border: solid $secondary;
+        border: round $secondary;
         border-title-color: $text-muted;
     }}
     #terminal-pane:focus-within {{
-        border: solid $accent;
+        border: round $accent;
         border-title-color: $accent;
     }}
     #agent-placeholder {{
@@ -136,19 +509,14 @@ class WorktreePanel(Container):
         self._agent_terminal: MonitoredTerminal | None = None
 
     def compose(self):
-        yield GitInfoBar(id="git-info-bar")
         with TabbedContent(id="agent-tabs"):
             with TabPane("Agent", id="agent-tab"):
                 yield Static(
-                    "Press [bold]s[/bold] or [bold]Ctrl+J[/bold] to spawn agent",
+                    "Press [bold]s[/bold] or [bold]2[/bold] to spawn agent",
                     id="agent-placeholder",
                 )
             with TabPane("Diff", id="diff-tab"):
-                with VerticalScroll(id="diff-scroll"):
-                    yield Static(
-                        Text("No changes"),
-                        id="diff-content",
-                    )
+                yield DiffView(id="diff-scroll")
         with Container(id="terminal-pane"):
             yield Static(
                 "Terminal",
@@ -157,8 +525,21 @@ class WorktreePanel(Container):
 
     def on_mount(self) -> None:
         terminal_pane = self.query_one("#terminal-pane", Container)
-        terminal_pane.border_title = "Ctrl+L Terminal"
+        terminal_pane.border_title = "[4] Terminal"
+        self._update_tab_title("agent-tab")
         self._try_start_terminal()
+
+    def _update_tab_title(self, active_pane_id: str) -> None:
+        agent = "\\[2] Agent" if active_pane_id == "agent-tab" else "[dim]\\[2] Agent[/dim]"
+        diff = "\\[3] Diff" if active_pane_id == "diff-tab" else "[dim]\\[3] Diff[/dim]"
+        try:
+            self.query_one("#agent-tabs", TabbedContent).border_title = f"{agent}  {diff}"
+        except Exception:
+            pass
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        if event.pane is not None:
+            self._update_tab_title(event.pane.id or "agent-tab")
 
     def _try_start_terminal(self) -> None:
         """Try to mount a real terminal widget."""
@@ -166,13 +547,17 @@ class WorktreePanel(Container):
             placeholder = self.query_one("#terminal-placeholder", Static)
             pane = self.query_one("#terminal-pane", Container)
             placeholder.remove()
+            shell = os.environ.get("SHELL", "bash")
             script = (
                 f"{env_exports()}"
                 f" && cd {shlex.quote(self.worktree_path)}"
-                f" && exec bash -l"
+                f" && {_TERMINAL_UNSET_CMD}"
+                f" && export HISTFILE=/dev/null"
+                f" && exec {shlex.quote(shell)} -l"
             )
             terminal = ScrollableTerminal(
                 command=f"bash -c {shlex.quote(script)}",
+                restart_on_disconnect=True,
                 id="terminal-widget",
             )
             pane.mount(terminal)
@@ -180,30 +565,18 @@ class WorktreePanel(Container):
         except Exception:
             pass
 
-    def update_git_status(self, git_status: GitStatus, branch: str) -> None:
-        """Update the git info bar for this panel."""
-        try:
-            bar = self.query_one("#git-info-bar", GitInfoBar)
-            bar.update_status(git_status, branch)
-        except Exception:
-            pass
-
     def update_diff(self, diff_text: str) -> None:
         """Update the diff tab content."""
         try:
-            diff_widget = self.query_one("#diff-content", Static)
-            if diff_text:
-                diff_widget.update(Text(diff_text))
-            else:
-                diff_widget.update(Text("No changes"))
+            self.query_one("#diff-scroll", DiffView).set_diff(diff_text)
         except Exception:
             pass
 
     def switch_to_tab(self, tab_id: str) -> None:
         """Switch the TabbedContent to the given tab."""
         try:
-            tabs = self.query_one("#agent-tabs", TabbedContent)
-            tabs.active = tab_id
+            self.query_one("#agent-tabs", TabbedContent).active = tab_id
+            self._update_tab_title(tab_id)
         except Exception:
             pass
 
@@ -231,7 +604,7 @@ class WorktreePanel(Container):
         except Exception:
             pane.mount(
                 Static(
-                    "Press [bold]s[/bold] or [bold]Ctrl+J[/bold] to spawn agent",
+                    "Press [bold]s[/bold] or [bold]2[/bold] to spawn agent",
                     id="agent-placeholder",
                 )
             )
