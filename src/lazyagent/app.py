@@ -19,6 +19,7 @@ from lazyagent.widgets.help_modal import HelpModal
 from lazyagent.widgets.create_worktree_modal import CreateWorktreeModal, CreateWorktreeResult
 from lazyagent.widgets.pr_status_bar import PrStatusBar
 from lazyagent.widgets.prompt_modal import SpawnModal
+from lazyagent.widgets.monitored_terminal import MonitoredTerminal
 from lazyagent.widgets.worktree_list import WorktreeList, WorktreeListItem
 from lazyagent.worktree_manager import WorktreeManager, WorktreeManagerError, find_repo_root
 
@@ -69,6 +70,17 @@ class LazyAgent(App):
         background: transparent;
         padding: 0 1;
     }
+
+    /* Agent zoom mode — triggered when MonitoredTerminal has focus */
+    .agent-zoomed #sidebar {
+        width: 6;
+    }
+    .agent-zoomed #terminal-pane {
+        height: 3;
+    }
+    .agent-zoomed #agent-tabs {
+        height: 1fr;
+    }
     """
 
     BINDINGS = [
@@ -116,6 +128,9 @@ class LazyAgent(App):
         self.set_interval(30, self._refresh_git_statuses)
         self.set_interval(30, self._refresh_selected_diff)
         self.set_interval(60, self._refresh_pr_status)
+
+    def on_focus(self, event) -> None:
+        self.set_class(isinstance(event.widget, MonitoredTerminal), "agent-zoomed")
 
     def _load_config(self) -> None:
         if self._repo_root:
