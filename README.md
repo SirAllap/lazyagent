@@ -16,16 +16,53 @@ A lazygit-inspired TUI for managing coding agents across git worktrees.
 
 ## Installation
 
-From PyPI:
+### Standalone (CLI)
 
 ```bash
-uv tool install lazyagent
+uv tool install lazyagent   # recommended
+# or
+pipx install lazyagent
+# or
+pip install lazyagent
 ```
 
-Or with pip:
+### Neovim / LazyVim
 
-```bash
-pip install lazyagent
+lazyagent is a lazy.nvim-installable plugin. Add this to your `lua/plugins/lazyagent.lua`:
+
+```lua
+return {
+  "gioalcamofly/lazyagent",
+  build = "pipx install lazyagent",
+  cmd = { "LazyAgent", "LazyAgentToggle" },
+  keys = {
+    { "<leader>la", "<cmd>LazyAgent<cr>", desc = "LazyAgent" },
+  },
+  opts = {},
+}
+```
+
+That's it — `:LazyAgent` opens the TUI in a floating window and `:LazyAgentToggle` toggles it.
+The `build` step installs the Python CLI automatically when the plugin is first installed.
+
+#### snacks.nvim (LazyVim default)
+
+If you have [snacks.nvim](https://github.com/folke/snacks.nvim) (included in LazyVim by default),
+the plugin uses `Snacks.terminal` automatically for proper toggle behaviour — the TUI persists
+between opens instead of restarting each time.
+
+#### Customisation
+
+```lua
+opts = {
+  cmd = "lazyagent",   -- override if not in PATH
+  win = "float",       -- "float" | "split" | "vsplit" | "tab"
+  float = {
+    border = "rounded", -- any nvim border style, or "none"
+    width  = 0.92,      -- fraction of editor width
+    height = 0.92,      -- fraction of editor height
+  },
+},
 ```
 
 ## Quick Start
