@@ -85,7 +85,7 @@ class ScrollableTerminal(ScrollView, can_focus=True):
     ScrollableTerminal {{
         overflow-y: auto;
         overflow-x: hidden;
-        background: $background;
+        background: transparent;
 {SCROLLBAR_CSS}
     }}
     """
@@ -358,12 +358,12 @@ class ScrollableTerminal(ScrollView, can_focus=True):
                     text.stylize(last_style, style_change_pos, x + 1)
                     style_change_pos = x
 
-            if (
-                show_cursor
-                and self._screen.cursor.x == x
-                and self._screen.cursor.y == screen_y
-            ):
-                text.stylize("reverse", x, x + 1)
+        # Apply cursor AFTER all character styles so it is never overwritten.
+        # Only show cursor when this widget has focus.
+        if show_cursor and self.has_focus:
+            cx = self._screen.cursor.x
+            if 0 <= cx < ncols:
+                text.stylize(Style(reverse=True), cx, cx + 1)
 
         segments = list(text.render(self.app.console))
         return Strip(segments)
@@ -400,8 +400,8 @@ class ScrollableTerminal(ScrollView, can_focus=True):
 
     def _char_rich_style(self, char: Char) -> Style:
         """Convert a pyte Char's attributes to a ``rich.Style``."""
-        foreground = self._detect_color(char.fg)
-        background = self._detect_color(char.bg)
+        foreground = self._detect_color(char.fg) if char.fg != "default" else None
+        background = self._detect_color(char.bg) if char.bg != "default" else None
 
         try:
             style = Style(
@@ -440,7 +440,7 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         if self.emulator is None:
             return
 
-        if event.key == "ctrl+f1":
+        if event.key == "alt+x":
             self.app.set_focus(None)
             return
 
