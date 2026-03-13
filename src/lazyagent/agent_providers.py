@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from dataclasses import dataclass
+
+_VALID_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 SENTINEL_TEXT = "your turn"
 SENTINEL_SYSTEM_PROMPT = (
@@ -12,7 +15,18 @@ SENTINEL_SYSTEM_PROMPT = (
 DEFAULT_AGENT_PROVIDER = "claude"
 
 # Vars that the PTY emulator already sets or that may cause issues if overridden.
-ENV_SKIP = frozenset({"TERM", "LC_ALL", "HOME", "_"})
+ENV_SKIP = frozenset({
+    "TERM", "LC_ALL", "HOME", "_",
+    # History — let the new shell initialize its own session
+    "HISTFILE", "HISTSOCK", "HISTFD",
+    # Atuin (shell history sync) — parent session socket is closed in the PTY
+    "ATUIN_SESSION", "ATUIN_SOCKET",
+    # McFly (alternative history tool)
+    "MCFLY_SESSION_ID",
+    # Let .bashrc build its own PROMPT_COMMAND — the parent's may reference
+    # dead pipe fds from history/preexec tools
+    "PROMPT_COMMAND",
+})
 
 
 @dataclass(frozen=True)
@@ -66,6 +80,8 @@ def env_exports() -> str:
     parts = []
     for key, val in os.environ.items():
         if key in ENV_SKIP:
+            continue
+        if not _VALID_IDENT.match(key):
             continue
         parts.append(f"{key}={shlex.quote(val)}")
     return "export " + " ".join(parts) if parts else "true"

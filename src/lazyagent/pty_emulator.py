@@ -15,6 +15,7 @@ import fcntl
 import os
 import pty
 import re
+import resource
 import shlex
 import signal
 import struct
@@ -88,6 +89,15 @@ class PtyEmulator:
         """Fork a PTY and exec the command in the child."""
         self.pid, fd = pty.fork()
         if self.pid == 0:
+            # Close all inherited file descriptors above stderr.
+            # The parent process (and its shell) may have open pipe fds
+            # (e.g. from atuin, mcfly, or other history tools) that become
+            # broken in the child, causing "history: write error: Broken pipe".
+            try:
+                max_fd = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+                os.closerange(3, max_fd)
+            except Exception:
+                pass
             argv = shlex.split(command)
             env = dict(TERM="xterm", LC_ALL="en_US.UTF-8", HOME=str(Path.home()))
             os.execvpe(argv[0], argv, env)
