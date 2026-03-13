@@ -22,6 +22,14 @@ _HELP_TEXT = """\
   [bold yellow]d[/bold yellow]               Remove selected worktree
   [bold yellow]r[/bold yellow]               Refresh worktree list
 
+[bold cyan]Diff (vim motions)[/bold cyan]
+  [bold yellow]h / j / k / l[/bold yellow]      Move cursor
+  [bold yellow]0 / $[/bold yellow]              Start / end of line
+  [bold yellow]g / G[/bold yellow]              Top / bottom
+  [bold yellow]v / V / Ctrl+V[/bold yellow]     Visual char / line / block mode
+  [bold yellow]y[/bold yellow]                  Yank selection to clipboard
+  [bold yellow]Esc[/bold yellow]                Exit visual mode
+
 [bold cyan]Terminal[/bold cyan]
   [bold yellow]alt+x[/bold yellow]              Exit terminal focus (back to panes)
   [bold yellow]PageUp / PageDown[/bold yellow]  Scroll terminal history
