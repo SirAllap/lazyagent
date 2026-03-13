@@ -12,18 +12,20 @@ from textual.widgets import ContentSwitcher, Static, TabbedContent, TabPane
 
 from lazyagent.agent_providers import (
     DEFAULT_AGENT_PROVIDER,
-    ENV_SKIP,
     env_exports,
     get_agent_provider,
 )
-
-# Vars set by the PTY emulator itself — exclude from the shell-level unset
-_PTY_MANAGED_VARS = frozenset({"TERM", "LC_ALL", "HOME", "_"})
-_TERMINAL_UNSET_VARS = " ".join(sorted(ENV_SKIP - _PTY_MANAGED_VARS))
 from lazyagent.models import GitStatus
 from lazyagent.styles import SCROLLBAR_CSS
 from lazyagent.widgets.monitored_terminal import MonitoredTerminal
 from lazyagent.widgets.scrollable_terminal import ScrollableTerminal
+
+# Unset all history/preexec vars that the login shell may inherit.
+# Uses bash ${!prefix@} expansion to catch everything at runtime.
+_TERMINAL_UNSET_CMD = (
+    'unset PROMPT_COMMAND ${!HIST@} ${!ATUIN_@} ${!MCFLY_@} ${!__@} 2>/dev/null;'
+    ' true'
+)
 
 
 _DIFF_STYLES: list[tuple[tuple[str, ...], Style]] = [
@@ -258,7 +260,8 @@ class WorktreePanel(Container):
             script = (
                 f"{env_exports()}"
                 f" && cd {shlex.quote(self.worktree_path)}"
-                f" && unset {_TERMINAL_UNSET_VARS}"
+                f" && {_TERMINAL_UNSET_CMD}"
+                f" && export HISTFILE=/dev/null"
                 f" && exec {shlex.quote(shell)} -l"
             )
             terminal = ScrollableTerminal(
