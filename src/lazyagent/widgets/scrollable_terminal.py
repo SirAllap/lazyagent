@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import subprocess
 from collections import deque
 
 import pyte
@@ -117,6 +118,11 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         self.recv_task: asyncio.Task | None = None
         self._stopped = False
         self._follow_output = True  # tracks auto-scroll intent across visibility
+
+        # Text selection state
+        self._sel_start: tuple[int, int] | None = None  # (virtual_row, col)
+        self._sel_end: tuple[int, int] | None = None
+        self._selecting: bool = False
 
         # pyte screen + stream
         self._screen = ScrollbackScreen(_DEFAULT_COLS, _DEFAULT_ROWS)
@@ -312,26 +318,34 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         scrollback_len = len(self._screen.scrollback)
         width = self.scrollable_content_region.width
 
+        sel_cols = self._get_sel_cols_for_row(virtual_y, width)
+
         if virtual_y < scrollback_len:
-            strip = self._render_scrollback_line(virtual_y, width)
+            strip = self._render_scrollback_line(virtual_y, width, sel_cols)
         else:
             screen_y = virtual_y - scrollback_len
-            strip = self._render_screen_line(screen_y, width)
+            strip = self._render_screen_line(screen_y, width, sel_cols)
 
         return strip.crop_extend(scroll_x, scroll_x + width, self.rich_style)
 
-    def _render_scrollback_line(self, index: int, width: int) -> Strip:
+    def _render_scrollback_line(
+        self, index: int, width: int, sel_cols: tuple[int, int] | None = None
+    ) -> Strip:
         """Render a line from the scrollback buffer."""
         row = self._screen.scrollback[index]
-        return self._row_to_strip(row, width, show_cursor=False)
+        return self._row_to_strip(row, width, show_cursor=False, sel_cols=sel_cols)
 
-    def _render_screen_line(self, screen_y: int, width: int) -> Strip:
+    def _render_screen_line(
+        self, screen_y: int, width: int, sel_cols: tuple[int, int] | None = None
+    ) -> Strip:
         """Render a line from the live pyte screen buffer."""
         if screen_y < 0 or screen_y >= self._screen.lines:
             return Strip.blank(width, self.rich_style)
         row = self._screen.buffer[screen_y]
         show_cursor = self._screen.cursor.y == screen_y
-        return self._row_to_strip(row, width, show_cursor=show_cursor, screen_y=screen_y)
+        return self._row_to_strip(
+            row, width, show_cursor=show_cursor, screen_y=screen_y, sel_cols=sel_cols
+        )
 
     def _row_to_strip(
         self,
@@ -340,6 +354,7 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         *,
         show_cursor: bool = False,
         screen_y: int = -1,
+        sel_cols: tuple[int, int] | None = None,
     ) -> Strip:
         """Convert a pyte row (dict of column→Char) to a textual Strip."""
         text = Text()
@@ -366,6 +381,11 @@ class ScrollableTerminal(ScrollView, can_focus=True):
             cx = self._screen.cursor.x
             if 0 <= cx < ncols:
                 text.stylize(Style(reverse=True), cx, cx + 1)
+
+        # Apply selection highlight on top of everything.
+        if sel_cols is not None:
+            col_s, col_e = sel_cols
+            text.stylize(Style(reverse=True), col_s, min(col_e, ncols))
 
         segments = list(text.render(self.app.console))
         return Strip(segments)
@@ -464,6 +484,8 @@ class ScrollableTerminal(ScrollView, can_focus=True):
             return
         if not self.mouse_tracking:
             return
+        if event.shift:
+            return  # Shift+click is for selection
         await self.send_queue.put(["click", event.x, event.y, event.button])
 
     async def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
@@ -489,6 +511,111 @@ class ScrollableTerminal(ScrollView, can_focus=True):
             event.stop()
             self._follow_output = False
             self.scroll_up()
+
+    async def on_mouse_down(self, event: events.MouseDown) -> None:
+        if self.emulator is None:
+            return
+        if event.button != 1:
+            return
+        # When the PTY app has mouse tracking, only select with Shift held.
+        if self.mouse_tracking and not event.shift:
+            return
+        self._selecting = True
+        self._sel_start = self._sel_end = self._widget_to_virtual(event.x, event.y)
+        self.capture_mouse()
+        self.refresh()
+
+    async def on_mouse_move(self, event: events.MouseMove) -> None:
+        if not self._selecting:
+            return
+        event.stop()
+        self._sel_end = self._widget_to_virtual(event.x, event.y)
+        self.refresh()
+
+    async def on_mouse_up(self, event: events.MouseUp) -> None:
+        if not self._selecting or event.button != 1:
+            return
+        self._selecting = False
+        self.release_mouse()
+        self._sel_end = self._widget_to_virtual(event.x, event.y)
+        text = self._get_selected_text()
+        if text:
+            self._copy_to_clipboard(text)
+            self.notify(f"Copied {len(text)} chars")
+        else:
+            self._sel_start = self._sel_end = None
+        self.refresh()
+
+    # ------------------------------------------------------------------
+    # Selection helpers
+    # ------------------------------------------------------------------
+
+    def _widget_to_virtual(self, x: int, y: int) -> tuple[int, int]:
+        """Convert widget-local (x, y) to (virtual_row, col)."""
+        _, scroll_y = self.scroll_offset
+        return (scroll_y + y, x)
+
+    def _sel_normalized(self) -> tuple[tuple[int, int], tuple[int, int]] | None:
+        """Return ((start_row, start_col), (end_row, end_col)) or None."""
+        if self._sel_start is None or self._sel_end is None:
+            return None
+        if self._sel_start == self._sel_end:
+            return None
+        return (min(self._sel_start, self._sel_end), max(self._sel_start, self._sel_end))
+
+    def _get_sel_cols_for_row(self, virtual_y: int, width: int) -> tuple[int, int] | None:
+        """Return (col_start, col_end) to highlight on this row, or None."""
+        sel = self._sel_normalized()
+        if sel is None:
+            return None
+        (start_row, start_col), (end_row, end_col) = sel
+        if virtual_y < start_row or virtual_y > end_row:
+            return None
+        col_s = start_col if virtual_y == start_row else 0
+        col_e = end_col if virtual_y == end_row else width
+        if col_s >= col_e:
+            return None
+        return (col_s, col_e)
+
+    def _get_selected_text(self) -> str:
+        """Extract selected text from scrollback and screen buffers."""
+        sel = self._sel_normalized()
+        if sel is None:
+            return ""
+        (start_row, start_col), (end_row, end_col) = sel
+        scrollback_len = len(self._screen.scrollback)
+        lines: list[str] = []
+        for row_idx in range(start_row, end_row + 1):
+            if row_idx < scrollback_len:
+                row = self._screen.scrollback[row_idx]
+            else:
+                screen_y = row_idx - scrollback_len
+                if 0 <= screen_y < self._screen.lines:
+                    row = self._screen.buffer[screen_y]
+                else:
+                    continue
+            col_s = start_col if row_idx == start_row else 0
+            col_e = end_col if row_idx == end_row else self._screen.columns
+            line = "".join(
+                row.get(c, self._screen.default_char).data for c in range(col_s, col_e)
+            )
+            lines.append(line.rstrip())
+        return "\n".join(lines)
+
+    def _copy_to_clipboard(self, text: str) -> None:
+        """Write text to the system clipboard using available CLI tools."""
+        for cmd in (
+            ["wl-copy"],
+            ["xclip", "-selection", "clipboard"],
+            ["xsel", "--clipboard", "--input"],
+        ):
+            try:
+                subprocess.run(
+                    cmd, input=text.encode(), timeout=2, check=True, capture_output=True
+                )
+                return
+            except Exception:
+                continue
 
     # ------------------------------------------------------------------
     # Resize

@@ -26,7 +26,7 @@ _HELP_TEXT = """\
   [bold yellow]alt+x[/bold yellow]              Exit terminal focus (back to panes)
   [bold yellow]PageUp / PageDown[/bold yellow]  Scroll terminal history
   [bold yellow]Mouse wheel[/bold yellow]        Scroll terminal history
-  [bold yellow]Shift+drag[/bold yellow]         Copy text (host terminal selection)
+  [bold yellow]Drag to select[/bold yellow]     Select and copy text to clipboard
 
 [bold cyan]General[/bold cyan]
   [bold yellow]?[/bold yellow]               Show this help
