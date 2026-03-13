@@ -47,6 +47,10 @@ class LazyAgent(App):
         dock: left;
         width: 38;
         layout: vertical;
+        padding-bottom: 1;
+    }
+    #pr-status-bar {
+        height: 9;
     }
     """
 

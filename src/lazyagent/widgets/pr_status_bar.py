@@ -21,7 +21,7 @@ class PrStatusBar(Static):
     """
 
     def __init__(self, **kwargs) -> None:
-        super().__init__("", markup=True, **kwargs)
+        super().__init__("[dim]No PR[/dim]", markup=True, **kwargs)
 
     def on_mount(self) -> None:
         self.border_title = "PR"
