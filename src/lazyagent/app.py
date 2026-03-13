@@ -20,23 +20,16 @@ from lazyagent.widgets.create_worktree_modal import CreateWorktreeModal, CreateW
 from lazyagent.widgets.pr_status_bar import PrStatusBar
 from lazyagent.widgets.prompt_modal import SpawnModal
 from lazyagent.widgets.monitored_terminal import MonitoredTerminal
+from lazyagent.widgets.scrollable_terminal import ScrollableTerminal
 from lazyagent.widgets.worktree_list import WorktreeList, WorktreeListItem
 from lazyagent.worktree_manager import WorktreeManager, WorktreeManagerError, find_repo_root
 
 _CMD_SENT_MSG = "Command sent to terminal — press r to refresh when done"
 _SEP = " [dim yellow]|[/dim yellow] "
-_KEY_HINTS = (
-    " [yellow]Prev/Next:[/yellow] [bold yellow]h/l[/bold yellow]"
-    + _SEP + "[yellow]Up/Down:[/yellow] [bold yellow]j/k[/bold yellow]"
-    + _SEP + "[yellow]Spawn:[/yellow] [bold yellow]s[/bold yellow]"
-    + _SEP + "[yellow]Stop:[/yellow] [bold yellow]x[/bold yellow]"
-    + _SEP + "[yellow]Refresh:[/yellow] [bold yellow]r[/bold yellow]"
-    + _SEP + "[yellow]Create:[/yellow] [bold yellow]c[/bold yellow]"
-    + _SEP + "[yellow]Remove:[/yellow] [bold yellow]d[/bold yellow]"
-    + _SEP + "[yellow]Quit:[/yellow] [bold yellow]q[/bold yellow]"
-    + _SEP + "[yellow]Exit terminal:[/yellow] [bold yellow]alt+x[/bold yellow]"
-    + _SEP + "[yellow]Help:[/yellow] [bold yellow]?[/bold yellow]"
-)
+
+
+def _hint(label: str, key: str) -> str:
+    return f"[yellow]{label}:[/yellow] [bold yellow]{key}[/bold yellow]"
 
 
 class LazyAgent(App):
@@ -73,7 +66,24 @@ class LazyAgent(App):
 
     /* Agent zoom mode — triggered when MonitoredTerminal has focus */
     .agent-zoomed #sidebar {
-        width: 6;
+        width: 7;
+    }
+    .agent-zoomed #pr-status-bar {
+        display: none;
+    }
+    .agent-zoomed WorktreeList {
+        border: round $secondary;
+    }
+    .agent-zoomed WorktreeList WorktreeListItem {
+        height: 3;
+        border: round transparent;
+        padding: 0;
+    }
+    .agent-zoomed WorktreeList WorktreeListItem.--main {
+        border: round $secondary;
+    }
+    .agent-zoomed WorktreeList WorktreeListItem.-highlight {
+        border: round $accent;
     }
     .agent-zoomed #terminal-pane {
         height: 3;
@@ -118,7 +128,7 @@ class LazyAgent(App):
                 yield WorktreeList()
                 yield PrStatusBar(id="pr-status-bar")
             yield CenterPanel()
-        yield Static(_KEY_HINTS, id="key-hints", markup=True)
+        yield Static("", id="key-hints", markup=True)
 
     def on_mount(self) -> None:
         self._load_worktrees()
@@ -129,8 +139,57 @@ class LazyAgent(App):
         self.set_interval(30, self._refresh_selected_diff)
         self.set_interval(60, self._refresh_pr_status)
 
-    def on_focus(self, event) -> None:
-        self.set_class(isinstance(event.widget, MonitoredTerminal), "agent-zoomed")
+    def on_descendant_focus(self, event) -> None:
+        zoomed = isinstance(event.widget, MonitoredTerminal)
+        self.set_class(zoomed, "agent-zoomed")
+        try:
+            wt_list = self.query_one(WorktreeList)
+            wt_list.set_compact(zoomed)
+            wt_list.border_title = "" if zoomed else "[1] Worktrees"
+        except Exception:
+            pass
+        self._update_key_hints(event.widget)
+
+    def _update_key_hints(self, focused_widget=None) -> None:
+        """Build contextual key hints based on focused pane and worktree state."""
+        wt = self._selected_worktree
+        agent_status = self._get_agent_state(wt.path).status if wt else AgentStatus.NO_AGENT
+        has_agent = agent_status in (AgentStatus.RUNNING, AgentStatus.WAITING, AgentStatus.POSSIBLY_HANGED)
+        is_main = wt.is_main if wt else True
+
+        hints: list[str] = []
+
+        if isinstance(focused_widget, MonitoredTerminal):
+            # Agent pane focused
+            hints.append(_hint("Detach", "alt+x"))
+        elif isinstance(focused_widget, ScrollableTerminal):
+            # Terminal pane focused
+            hints.append(_hint("Exit terminal", "alt+x"))
+        else:
+            # Sidebar, diff, or other pane
+            hints.append(_hint("Navigate", "h/l"))
+            hints.append(_hint("Up/Down", "j/k"))
+
+            if not has_agent:
+                hints.append(_hint("Spawn", "s"))
+            else:
+                hints.append(_hint("Stop", "x"))
+
+            hints.append(_hint("Refresh", "r"))
+            hints.append(_hint("Create", "c"))
+
+            if not is_main:
+                hints.append(_hint("Remove", "d"))
+
+        hints.append(_hint("Quit", "q"))
+        hints.append(_hint("Help", "?"))
+
+        try:
+            self.query_one("#key-hints", Static).update(
+                " " + _SEP.join(hints)
+            )
+        except Exception:
+            pass
 
     def _load_config(self) -> None:
         if self._repo_root:
@@ -261,6 +320,7 @@ class LazyAgent(App):
             self._refresh_pr_status()
         else:
             self._selected_worktree = None
+        self._update_key_hints(self.focused)
 
     # --- Agent message handlers ---
 
@@ -274,12 +334,14 @@ class LazyAgent(App):
             if panel and panel.agent_terminal:
                 state.last_output_time = panel.agent_terminal.last_output_time
         self.query_one(WorktreeList).update_agent_state(event.worktree_path, state)
+        self._update_key_hints(self.focused)
 
     async def on_agent_exited(self, event: AgentExited) -> None:
         state = self._get_agent_state(event.worktree_path)
         state.status = AgentStatus.NO_AGENT
         state.last_output_time = None
         self.query_one(WorktreeList).update_agent_state(event.worktree_path, state)
+        self._update_key_hints(self.focused)
 
         center = self.query_one(CenterPanel)
         panel = center.get_panel(event.worktree_path)
