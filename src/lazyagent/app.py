@@ -6,14 +6,14 @@ import sys
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.widgets import Footer, Header
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Static
 from textual import work
 
 from lazyagent.config import Config, format_command, load_config
 from lazyagent.messages import AgentExited, AgentStatusChanged
 from lazyagent.models import AgentState, AgentStatus, GitStatus, WorktreeInfo
-from lazyagent.widgets.center_panel import CenterPanel
+from lazyagent.widgets.center_panel import CenterPanel, GitInfoBar
 from lazyagent.widgets.confirm_modal import ConfirmModal
 from lazyagent.widgets.help_modal import HelpModal
 from lazyagent.widgets.create_worktree_modal import CreateWorktreeModal, CreateWorktreeResult
@@ -22,35 +22,51 @@ from lazyagent.widgets.prompt_modal import SpawnModal
 from lazyagent.widgets.worktree_list import WorktreeList, WorktreeListItem
 from lazyagent.worktree_manager import WorktreeManager, WorktreeManagerError, find_repo_root
 
+_SEP = " [dim yellow]|[/dim yellow] "
+_KEY_HINTS = (
+    " [yellow]Prev/Next:[/yellow] [bold yellow]h/l[/bold yellow]"
+    + _SEP + "[yellow]Up/Down:[/yellow] [bold yellow]j/k[/bold yellow]"
+    + _SEP + "[yellow]Spawn:[/yellow] [bold yellow]s[/bold yellow]"
+    + _SEP + "[yellow]Stop:[/yellow] [bold yellow]x[/bold yellow]"
+    + _SEP + "[yellow]Refresh:[/yellow] [bold yellow]r[/bold yellow]"
+    + _SEP + "[yellow]Create:[/yellow] [bold yellow]c[/bold yellow]"
+    + _SEP + "[yellow]Remove:[/yellow] [bold yellow]d[/bold yellow]"
+    + _SEP + "[yellow]Quit:[/yellow] [bold yellow]q[/bold yellow]"
+    + _SEP + "[yellow]Exit terminal:[/yellow] [bold yellow]alt+x[/bold yellow]"
+    + _SEP + "[yellow]Help:[/yellow] [bold yellow]?[/bold yellow]"
+)
+
 
 class LazyAgent(App):
     """Textual TUI for managing coding agents across git worktrees."""
 
-    TITLE = "lazyagent"
+    ENABLE_COMMAND_PALETTE = False
 
     CSS = """
     Screen {
-        layout: horizontal;
-    }
-    Header {
-        dock: top;
-        height: 1;
-        background: $boost;
-        color: $text;
-    }
-    Footer {
-        dock: bottom;
-        height: 1;
-        background: $boost;
-    }
-    #sidebar {
-        dock: left;
-        width: 38;
         layout: vertical;
+    }
+    #global-status-bar {
+        height: 3;
+    }
+    #main-area {
+        height: 1fr;
+        layout: horizontal;
         padding-bottom: 1;
     }
+    #sidebar {
+        width: 36;
+        layout: vertical;
+    }
     #pr-status-bar {
-        height: 9;
+        height: auto;
+        min-height: 5;
+        max-height: 9;
+    }
+    #key-hints {
+        height: 1;
+        background: transparent;
+        padding: 0 1;
     }
     """
 
@@ -61,11 +77,13 @@ class LazyAgent(App):
         Binding("x", "stop_agent", "Stop"),
         Binding("c", "create_worktree", "Create"),
         Binding("d", "remove_worktree", "Remove"),
-        Binding("ctrl+k", "focus_sidebar", "Ctrl+K Sidebar", priority=True),
-        Binding("ctrl+j", "focus_agent", "Ctrl+J Agent", priority=True),
-        Binding("ctrl+d", "focus_diff", "Ctrl+D Diff", priority=True),
-        Binding("ctrl+l", "focus_terminal", "Ctrl+L Terminal", priority=True),
+        Binding("1", "focus_sidebar", show=False),
+        Binding("2", "focus_agent", show=False),
+        Binding("3", "focus_diff", show=False),
+        Binding("4", "focus_terminal", show=False),
         Binding("question_mark", "help", "Help"),
+        Binding("l", "next_pane", show=False),
+        Binding("h", "prev_pane", show=False),
     ]
 
     def __init__(self, repo_path: str | None = None) -> None:
@@ -78,14 +96,16 @@ class LazyAgent(App):
         self._config: Config = Config()
         self._repo_root: str = ""
         self._gh_available: bool | None = None
+        self._current_focus_pane: int = 1
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        with Vertical(id="sidebar"):
-            yield WorktreeList()
-            yield PrStatusBar(id="pr-status-bar")
-        yield CenterPanel()
-        yield Footer()
+        yield GitInfoBar(id="global-status-bar")
+        with Horizontal(id="main-area"):
+            with Vertical(id="sidebar"):
+                yield WorktreeList()
+                yield PrStatusBar(id="pr-status-bar")
+            yield CenterPanel()
+        yield Static(_KEY_HINTS, id="key-hints", markup=True)
 
     def on_mount(self) -> None:
         self._load_worktrees()
@@ -117,19 +137,17 @@ class LazyAgent(App):
         wt_list = self.query_one(WorktreeList)
         wt_list.set_worktrees(self.worktrees)
 
-        count = len(self.worktrees)
-        self.sub_title = f"{count} worktree{'s' if count != 1 else ''}"
+        if self.worktrees:
+            first = self.worktrees[0]
+            self._selected_worktree = first
+            wt_list.index = 0
+            self.query_one(CenterPanel).switch_to(first.path)
 
         self._refresh_git_statuses()
 
     def _get_selected_worktree(self) -> WorktreeInfo | None:
-        """Get the currently highlighted worktree."""
-        wt_list = self.query_one(WorktreeList)
-        if wt_list.highlighted_child is not None and isinstance(
-            wt_list.highlighted_child, WorktreeListItem
-        ):
-            return wt_list.highlighted_child.worktree
-        return None
+        """Get the currently selected worktree."""
+        return self._selected_worktree
 
     def _get_agent_state(self, worktree_path: str) -> AgentState:
         if worktree_path not in self._agent_states:
@@ -150,17 +168,19 @@ class LazyAgent(App):
         self._push_git_status_to_selected_panel()
 
     def _push_git_status_to_selected_panel(self) -> None:
-        """Push cached git status to the currently visible panel."""
+        """Push cached git status to the global status bar."""
         wt = self._selected_worktree
         if wt is None:
             return
         gs = self._git_statuses.get(wt.path)
         if gs is None:
             return
-        center = self.query_one(CenterPanel)
-        panel = center.get_panel(wt.path)
-        if panel:
-            panel.update_git_status(gs, wt.display_branch)
+        try:
+            self.query_one("#global-status-bar", GitInfoBar).update_status(
+                gs, wt.display_branch, wt.short_head
+            )
+        except Exception:
+            pass
 
     def _refresh_selected_diff(self) -> None:
         """Refresh the diff tab for the currently selected worktree."""
@@ -297,9 +317,11 @@ class LazyAgent(App):
         self.notify("Agent stopped")
 
     def action_focus_sidebar(self) -> None:
+        self._current_focus_pane = 1
         self.query_one(WorktreeList).focus()
 
     def action_focus_agent(self) -> None:
+        self._current_focus_pane = 2
         wt = self._get_selected_worktree()
         if not wt:
             return
@@ -312,6 +334,7 @@ class LazyAgent(App):
                 self.action_spawn_agent()
 
     def action_focus_diff(self) -> None:
+        self._current_focus_pane = 3
         wt = self._get_selected_worktree()
         if not wt:
             return
@@ -324,6 +347,7 @@ class LazyAgent(App):
                 pass
 
     def action_focus_terminal(self) -> None:
+        self._current_focus_pane = 4
         wt = self._get_selected_worktree()
         if not wt:
             return
@@ -333,6 +357,16 @@ class LazyAgent(App):
                 panel.query_one("#terminal-widget").focus()
             except Exception:
                 pass
+
+    _PANE_ACTIONS = ["focus_sidebar", "focus_agent", "focus_diff", "focus_terminal"]
+
+    def action_next_pane(self) -> None:
+        next_p = (self._current_focus_pane % 4) + 1
+        getattr(self, f"action_{self._PANE_ACTIONS[next_p - 1]}")()
+
+    def action_prev_pane(self) -> None:
+        prev_p = ((self._current_focus_pane - 2) % 4) + 1
+        getattr(self, f"action_{self._PANE_ACTIONS[prev_p - 1]}")()
 
     def action_refresh(self) -> None:
         self._load_worktrees()
@@ -344,8 +378,12 @@ class LazyAgent(App):
                 return
             self._do_create_worktree(result)
 
+        branches = WorktreeManager.list_local_branches(self._repo_root) if self._repo_root else []
         self.push_screen(
-            CreateWorktreeModal(default_branch=self._config.default_branch),
+            CreateWorktreeModal(
+                default_branch=self._config.default_branch,
+                branches=branches or [self._config.default_branch],
+            ),
             on_modal_dismiss,
         )
 

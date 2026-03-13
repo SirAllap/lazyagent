@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import shlex
 
+from rich.style import Style
 from rich.text import Text
-from textual.containers import Container, VerticalScroll
+from textual.binding import Binding
+from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import ContentSwitcher, Static, TabbedContent, TabPane
 
 from lazyagent.agent_providers import (
@@ -18,55 +20,118 @@ from lazyagent.widgets.monitored_terminal import MonitoredTerminal
 from lazyagent.widgets.scrollable_terminal import ScrollableTerminal
 
 
+def _colorize_diff(diff_text: str) -> Text:
+    """Parse a unified diff and return a Rich Text with syntax colours."""
+    t = Text(no_wrap=False, overflow="fold")
+    for line in diff_text.splitlines():
+        if line.startswith("diff ") or line.startswith("index "):
+            t.append(line + "\n", style=Style(dim=True))
+        elif line.startswith("--- ") or line.startswith("+++ "):
+            t.append(line + "\n", style=Style(bold=True))
+        elif line.startswith("@@"):
+            t.append(line + "\n", style=Style(color="cyan", bold=True))
+        elif line.startswith("+"):
+            t.append(line + "\n", style=Style(color="green"))
+        elif line.startswith("-"):
+            t.append(line + "\n", style=Style(color="red"))
+        else:
+            t.append(line + "\n")
+    return t
+
+
+class DiffScroll(VerticalScroll, can_focus=True):
+    """Scrollable diff view with vim-style j/k/ctrl+d/ctrl+u motions."""
+
+    BINDINGS = [
+        Binding("j", "scroll_down", show=False),
+        Binding("k", "scroll_up", show=False),
+        Binding("g", "scroll_home", show=False),
+        Binding("G", "scroll_end", show=False),
+        Binding("ctrl+d", "half_down", show=False),
+        Binding("ctrl+u", "half_up", show=False),
+    ]
+
+    def action_half_down(self) -> None:
+        self.scroll_relative(y=self.size.height // 2, animate=False)
+
+    def action_half_up(self) -> None:
+        self.scroll_relative(y=-(self.size.height // 2), animate=False)
+
+
 def _panel_id(worktree_path: str) -> str:
     """Derive a DOM-safe ID from a worktree path."""
     return "wp-" + hashlib.md5(worktree_path.encode()).hexdigest()[:8]
 
 
-class GitInfoBar(Static):
-    """Thin bar showing git status for the current worktree."""
+class GitInfoBar(Horizontal):
+    """Full-width status bar: branch/hash/subject on the left, git stats on the right."""
 
     DEFAULT_CSS = """
     GitInfoBar {
-        height: 1;
+        height: 3;
         width: 1fr;
-        background: $boost;
-        color: $text;
+        background: transparent;
+        border: round $secondary;
+        border-title-color: $text-muted;
+    }
+    GitInfoBar #git-left {
+        width: 1fr;
+        height: 1fr;
         padding: 0 1;
+        color: $text;
+    }
+    GitInfoBar #git-right {
+        width: auto;
+        height: 1fr;
+        padding: 0 1;
+        color: $text;
     }
     """
 
-    def __init__(self, **kwargs) -> None:
-        super().__init__("", markup=True, **kwargs)
+    def compose(self):
+        yield Static("", id="git-left", markup=True)
+        yield Static("", id="git-right", markup=True)
 
-    def update_status(self, git_status: GitStatus, branch: str) -> None:
-        """Re-render the bar with new git info."""
-        # Truncate branch and commit subject
-        b = branch[:30] + "\u2026" if len(branch) > 30 else branch
+    def on_mount(self) -> None:
+        self.border_title = "Status"
+
+    def update_status(self, git_status: GitStatus, branch: str, short_head: str = "") -> None:
+        b = branch[:35] + "\u2026" if len(branch) > 35 else branch
         subj = git_status.last_commit_subject
-        subj = subj[:50] + "\u2026" if len(subj) > 50 else subj
 
-        parts: list[str] = [f"[bold]{b}[/bold]"]
+        left_parts: list[str] = [f"[bold]{b}[/bold]"]
+        if short_head:
+            left_parts.append(f"[dim]{short_head}[/dim]")
         if subj:
-            parts.append(f"[dim]{subj}[/dim]")
+            left_parts.append(f"[dim]{subj}[/dim]")
 
-        if git_status.dirty_count > 0:
-            parts.append(f"[yellow]*{git_status.dirty_count} dirty[/yellow]")
+        right_parts: list[str] = []
+        if git_status.dirty_count == 0:
+            right_parts.append("[green]\u2713 clean[/green]")
         else:
-            parts.append("[green]clean[/green]")
+            if git_status.staged:
+                right_parts.append(f"[green]+{git_status.staged}[/green]")
+            if git_status.unstaged:
+                right_parts.append(f"[yellow]~{git_status.unstaged}[/yellow]")
+            if git_status.untracked:
+                right_parts.append(f"[dim]?{git_status.untracked}[/dim]")
 
         if git_status.has_upstream:
             if git_status.ahead == 0 and git_status.behind == 0:
-                parts.append("[green]in sync[/green]")
+                right_parts.append("[green]\u21910 \u21930[/green]")
             else:
                 if git_status.ahead:
-                    parts.append(f"[cyan]\u2191{git_status.ahead}[/cyan]")
+                    right_parts.append(f"[cyan]\u2191{git_status.ahead}[/cyan]")
                 if git_status.behind:
-                    parts.append(f"[red]\u2193{git_status.behind}[/red]")
+                    right_parts.append(f"[red]\u2193{git_status.behind}[/red]")
         else:
-            parts.append("[dim]no upstream[/dim]")
+            right_parts.append("[dim]no upstream[/dim]")
 
-        self.update("  ".join(parts))
+        try:
+            self.query_one("#git-left", Static).update("  ".join(left_parts))
+            self.query_one("#git-right", Static).update("  ".join(right_parts))
+        except Exception:
+            pass
 
 
 class WorktreePanel(Container):
@@ -80,12 +145,15 @@ class WorktreePanel(Container):
     }}
     #agent-tabs {{
         height: 2fr;
-        border: solid $secondary;
+        border: round $secondary;
         border-title-color: $text-muted;
     }}
     #agent-tabs:focus-within {{
-        border: solid $accent;
+        border: round $accent;
         border-title-color: $accent;
+    }}
+    #agent-tabs Tabs {{
+        display: none;
     }}
     #agent-tab {{
         height: 1fr;
@@ -93,12 +161,12 @@ class WorktreePanel(Container):
     #diff-tab {{
         height: 1fr;
     }}
-    #diff-scroll {{
+    DiffScroll {{
         height: 1fr;
         width: 1fr;
         overflow-y: auto;
         overflow-x: hidden;
-        background: $background;
+        background: transparent;
 {SCROLLBAR_CSS}
     }}
     #diff-content {{
@@ -108,11 +176,11 @@ class WorktreePanel(Container):
     }}
     #terminal-pane {{
         height: 1fr;
-        border: solid $secondary;
+        border: round $secondary;
         border-title-color: $text-muted;
     }}
     #terminal-pane:focus-within {{
-        border: solid $accent;
+        border: round $accent;
         border-title-color: $accent;
     }}
     #agent-placeholder {{
@@ -136,15 +204,14 @@ class WorktreePanel(Container):
         self._agent_terminal: MonitoredTerminal | None = None
 
     def compose(self):
-        yield GitInfoBar(id="git-info-bar")
         with TabbedContent(id="agent-tabs"):
             with TabPane("Agent", id="agent-tab"):
                 yield Static(
-                    "Press [bold]s[/bold] or [bold]Ctrl+J[/bold] to spawn agent",
+                    "Press [bold]s[/bold] or [bold]2[/bold] to spawn agent",
                     id="agent-placeholder",
                 )
             with TabPane("Diff", id="diff-tab"):
-                with VerticalScroll(id="diff-scroll"):
+                with DiffScroll(id="diff-scroll"):
                     yield Static(
                         Text("No changes"),
                         id="diff-content",
@@ -157,8 +224,21 @@ class WorktreePanel(Container):
 
     def on_mount(self) -> None:
         terminal_pane = self.query_one("#terminal-pane", Container)
-        terminal_pane.border_title = "Ctrl+L Terminal"
+        terminal_pane.border_title = "[4] Terminal"
+        self._update_tab_title("agent-tab")
         self._try_start_terminal()
+
+    def _update_tab_title(self, active_pane_id: str) -> None:
+        agent = "\\[2] Agent" if active_pane_id == "agent-tab" else "[dim]\\[2] Agent[/dim]"
+        diff = "\\[3] Diff" if active_pane_id == "diff-tab" else "[dim]\\[3] Diff[/dim]"
+        try:
+            self.query_one("#agent-tabs", TabbedContent).border_title = f"{agent}  {diff}"
+        except Exception:
+            pass
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        if event.pane is not None:
+            self._update_tab_title(event.pane.id or "agent-tab")
 
     def _try_start_terminal(self) -> None:
         """Try to mount a real terminal widget."""
@@ -169,6 +249,9 @@ class WorktreePanel(Container):
             script = (
                 f"{env_exports()}"
                 f" && cd {shlex.quote(self.worktree_path)}"
+                f" && unset HISTFILE HISTSOCK HISTFD"
+                f" ATUIN_SESSION ATUIN_SOCKET"
+                f" MCFLY_SESSION_ID"
                 f" && exec bash -l"
             )
             terminal = ScrollableTerminal(
@@ -180,11 +263,11 @@ class WorktreePanel(Container):
         except Exception:
             pass
 
-    def update_git_status(self, git_status: GitStatus, branch: str) -> None:
+    def update_git_status(self, git_status: GitStatus, branch: str, short_head: str = "") -> None:
         """Update the git info bar for this panel."""
         try:
             bar = self.query_one("#git-info-bar", GitInfoBar)
-            bar.update_status(git_status, branch)
+            bar.update_status(git_status, branch, short_head)
         except Exception:
             pass
 
@@ -193,7 +276,7 @@ class WorktreePanel(Container):
         try:
             diff_widget = self.query_one("#diff-content", Static)
             if diff_text:
-                diff_widget.update(Text(diff_text))
+                diff_widget.update(_colorize_diff(diff_text))
             else:
                 diff_widget.update(Text("No changes"))
         except Exception:
@@ -202,8 +285,8 @@ class WorktreePanel(Container):
     def switch_to_tab(self, tab_id: str) -> None:
         """Switch the TabbedContent to the given tab."""
         try:
-            tabs = self.query_one("#agent-tabs", TabbedContent)
-            tabs.active = tab_id
+            self.query_one("#agent-tabs", TabbedContent).active = tab_id
+            self._update_tab_title(tab_id)
         except Exception:
             pass
 
@@ -231,7 +314,7 @@ class WorktreePanel(Container):
         except Exception:
             pane.mount(
                 Static(
-                    "Press [bold]s[/bold] or [bold]Ctrl+J[/bold] to spawn agent",
+                    "Press [bold]s[/bold] or [bold]2[/bold] to spawn agent",
                     id="agent-placeholder",
                 )
             )
