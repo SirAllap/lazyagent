@@ -6,7 +6,8 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Input, Static
+from textual.widgets import Input, Select, Static
+from textual.containers import Container
 
 
 @dataclass
@@ -18,7 +19,7 @@ class CreateWorktreeResult:
 
 
 class CreateWorktreeModal(ModalScreen[CreateWorktreeResult | None]):
-    """Modal for entering branch name and base branch to create a worktree."""
+    """Modal for entering branch name and selecting a base branch."""
 
     DEFAULT_CSS = """
     CreateWorktreeModal {
@@ -26,11 +27,40 @@ class CreateWorktreeModal(ModalScreen[CreateWorktreeResult | None]):
     }
 
     CreateWorktreeModal > Vertical {
-        width: 50;
+        width: 56;
         height: auto;
-        border: solid $secondary;
-        background: $surface;
+        border: round $accent;
+        background: transparent;
         padding: 1 2;
+    }
+
+    CreateWorktreeModal Input {
+        border: round $secondary;
+        background: transparent;
+    }
+
+    CreateWorktreeModal .input-wrap {
+        height: auto;
+        padding: 1 0;
+    }
+
+    CreateWorktreeModal Input:focus {
+        border: round $accent;
+    }
+
+    CreateWorktreeModal Select {
+        border: round $secondary;
+        background: transparent;
+    }
+
+    CreateWorktreeModal Select:focus {
+        border: round $accent;
+    }
+
+    CreateWorktreeModal SelectCurrent {
+        background: transparent;
+        border: none;
+        padding: 0 1;
     }
 
     CreateWorktreeModal .modal-title {
@@ -53,27 +83,42 @@ class CreateWorktreeModal(ModalScreen[CreateWorktreeResult | None]):
         Binding("escape", "cancel", "Cancel", show=False),
     ]
 
-    def __init__(self, default_branch: str = "master", **kwargs) -> None:
+    def __init__(
+        self,
+        default_branch: str = "master",
+        branches: list[str] | None = None,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
         self._default_branch = default_branch
+        self._branches = branches or [default_branch]
 
     def compose(self) -> ComposeResult:
+        options = [(b, b) for b in self._branches]
+        initial = self._default_branch if self._default_branch in self._branches else Select.NULL
         with Vertical():
             yield Static("Create worktree", classes="modal-title")
             yield Static("Branch name:", classes="modal-label")
-            yield Input(placeholder="my-feature-branch", id="branch-input")
+            with Container(classes="input-wrap"):
+                yield Input(placeholder="my-feature-branch", id="branch-input")
             yield Static("Base branch:", classes="modal-label")
-            yield Input(value=self._default_branch, id="base-input")
-            yield Static("[dim]enter to confirm · esc to cancel[/dim]", classes="modal-hint")
+            yield Select(options, value=initial, allow_blank=True, id="base-select")
+            yield Static(
+                "[dim]enter to confirm · esc to cancel[/dim]",
+                classes="modal-hint",
+            )
 
     def on_mount(self) -> None:
         self.query_one("#branch-input", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "branch-input":
-            self.query_one("#base-input", Input).focus()
-        elif event.input.id == "base-input":
-            self._confirm()
+            select = self.query_one("#base-select", Select)
+            if select.value is Select.NULL:
+                select.focus()
+            else:
+                self._confirm()
+
 
     def _confirm(self) -> None:
         branch = self.query_one("#branch-input", Input).value.strip()
@@ -81,8 +126,12 @@ class CreateWorktreeModal(ModalScreen[CreateWorktreeResult | None]):
             self.notify("Branch name is required", severity="warning")
             self.query_one("#branch-input", Input).focus()
             return
-        base = self.query_one("#base-input", Input).value.strip() or self._default_branch
-        self.dismiss(CreateWorktreeResult(branch=branch, base_branch=base))
+        select = self.query_one("#base-select", Select)
+        if select.value is Select.NULL:
+            self.notify("Base branch is required", severity="warning")
+            select.focus()
+            return
+        self.dismiss(CreateWorktreeResult(branch=branch, base_branch=str(select.value)))
 
     def action_cancel(self) -> None:
         self.dismiss(None)
