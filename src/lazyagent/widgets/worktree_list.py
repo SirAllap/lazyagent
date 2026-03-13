@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from textual import events
 from textual.binding import Binding
 from textual.widgets import ListItem, ListView, Static
 
@@ -11,16 +12,7 @@ class WorktreeListItem(ListItem):
 
     DEFAULT_CSS = """
     WorktreeListItem {
-        height: 4;
-        padding: 0 1;
-        color: $text;
-    }
-    WorktreeListItem.-highlight {
-        background: $boost;
-    }
-    WorktreeListItem.--main {
-        background: $primary-background-darken-2;
-        border-left: tall $primary;
+        height: 6;
     }
     """
 
@@ -32,6 +24,16 @@ class WorktreeListItem(ListItem):
         if worktree.is_main:
             self.add_class("--main")
 
+    def watch_highlighted(self, value: bool) -> None:
+        super().watch_highlighted(value)
+        self.styles.background = "transparent"
+
+    def on_enter(self, event: events.Enter) -> None:
+        self.styles.background = "transparent"
+
+    def on_leave(self, event: events.Leave) -> None:
+        self.styles.background = "transparent"
+
     def compose(self):
         yield Static(self._build_label(), markup=True, id="wt-label")
 
@@ -40,7 +42,7 @@ class WorktreeListItem(ListItem):
         branch = self.worktree.display_branch
         status = self._status_line()
         git = self._git_status_line()
-        return f"[bold]{label}[/bold]\n{branch}\n{status}\n{git}"
+        return f"[bold]{label}[/bold]\n[dim]{branch}[/dim]\n{status}\n{git}"
 
     def _status_line(self) -> str:
         state = self._agent_state
@@ -95,12 +97,33 @@ class WorktreeList(ListView):
     DEFAULT_CSS = """
     WorktreeList {
         height: 1fr;
-        border: solid $secondary;
+        border: round $secondary;
         border-title-color: $text-muted;
+        background: transparent;
     }
     WorktreeList:focus-within {
-        border: solid $accent;
+        border: round $accent;
         border-title-color: $accent;
+    }
+    WorktreeList WorktreeListItem {
+        background: transparent;
+        border: round transparent;
+        color: $text-muted;
+        padding: 0 1;
+    }
+    WorktreeList WorktreeListItem.--main {
+        border: round $secondary;
+        color: $text;
+    }
+    WorktreeList WorktreeListItem.-highlight {
+        background: transparent;
+        border: round $accent;
+        color: $text;
+    }
+    WorktreeList WorktreeListItem.-highlight.--main {
+        background: transparent;
+        border: round $accent;
+        color: $text;
     }
     """
 
@@ -110,7 +133,7 @@ class WorktreeList(ListView):
     ]
 
     def on_mount(self) -> None:
-        self.border_title = "Ctrl+K Sidebar"
+        self.border_title = "[1] Worktrees"
 
     def set_worktrees(self, worktrees: list[WorktreeInfo]) -> None:
         """Replace the list contents with the given worktrees."""
