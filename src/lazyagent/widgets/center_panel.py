@@ -387,7 +387,7 @@ class GitInfoBar(Horizontal):
     GitInfoBar {
         height: 3;
         width: 1fr;
-        background: $background;
+        background: transparent;
         border: round $secondary;
         border-title-color: $text-muted;
     }
@@ -459,13 +459,13 @@ class WorktreePanel(Container):
         layout: vertical;
         width: 1fr;
         height: 1fr;
-        background: $background;
+        background: transparent;
     }}
     #agent-tabs {{
         height: 2fr;
         border: round $secondary;
         border-title-color: $text-muted;
-        background: $background;
+        background: transparent;
     }}
     #agent-tabs:focus-within {{
         border: round $accent;
@@ -476,39 +476,39 @@ class WorktreePanel(Container):
     }}
     #agent-tabs ContentSwitcher {{
         height: 1fr;
-        background: $background;
+        background: transparent;
     }}
     #agent-tabs TabPane {{
         height: 1fr;
-        background: $background;
+        background: transparent;
     }}
     #agent-tab {{
         height: 1fr;
-        background: $background;
+        background: transparent;
     }}
     #diff-tab {{
         height: 1fr;
-        background: $background;
+        background: transparent;
     }}
     DiffView {{
         height: 1fr;
         width: 1fr;
         overflow-y: auto;
         overflow-x: hidden;
-        background: $background;
+        background: transparent;
 {SCROLLBAR_CSS}
     }}
     #bottom-row {{
         height: 1fr;
         layout: horizontal;
-        background: $background;
+        background: transparent;
     }}
     #terminal-pane {{
         width: 2fr;
         height: 1fr;
         border: round $secondary;
         border-title-color: $text-muted;
-        background: $background;
+        background: transparent;
     }}
     #terminal-pane:focus-within {{
         border: round $accent;
@@ -517,14 +517,14 @@ class WorktreePanel(Container):
     #usage-panel {{
         width: 1fr;
         height: 1fr;
-        background: $background;
+        background: transparent;
     }}
     #agent-placeholder {{
         width: 1fr;
         height: 1fr;
         content-align: center middle;
         color: $text-muted;
-        background: $background;
+        background: transparent;
     }}
     #agent-placeholder:focus {{
         color: $text-muted;
@@ -534,7 +534,7 @@ class WorktreePanel(Container):
         height: 1fr;
         content-align: center middle;
         color: $text-muted;
-        background: $background;
+        background: transparent;
     }}
     ScrollableTerminal {{ height: 1fr; width: 1fr; }}
     """
@@ -715,15 +715,15 @@ class CenterPanel(Container):
     CenterPanel {
         width: 1fr;
         height: 1fr;
-        background: $background;
+        background: transparent;
     }
-    ContentSwitcher { height: 1fr; background: $background; }
+    ContentSwitcher { height: 1fr; background: transparent; }
     #center-placeholder {
         width: 1fr;
         height: 1fr;
         content-align: center middle;
         color: $text-muted;
-        background: $background;
+        background: transparent;
     }
     """
 

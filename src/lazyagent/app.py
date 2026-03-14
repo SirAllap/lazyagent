@@ -159,31 +159,33 @@ class LazyAgent(App):
 
     CSS = """
     App {
-        background: $background;
+        background: transparent;
     }
     Screen {
         layout: vertical;
-        background: $background;
+        background: transparent;
     }
-    /* Restore a proper overlay for modal screens — Screen rule above would
-       otherwise make ModalScreen transparent, causing a black canvas. */
+    /* Restore a proper overlay for modal screens — the transparent Screen
+       rule above cascades to ModalScreen (a Screen subclass), stripping
+       Textual's built-in overlay and producing a black canvas behind dialogs.
+       This rule re-applies a semi-transparent overlay only for modals. */
     ModalScreen {
         background: $surface 60%;
     }
     #global-status-bar {
         height: 3;
-        background: $background;
+        background: transparent;
     }
     #main-area {
         height: 1fr;
         layout: horizontal;
         padding-bottom: 0;
-        background: $background;
+        background: transparent;
     }
     #sidebar {
         width: 36;
         layout: vertical;
-        background: $background;
+        background: transparent;
     }
     #pr-status-bar {
         height: auto;
@@ -192,7 +194,7 @@ class LazyAgent(App):
     }
     #key-hints {
         height: 1;
-        background: $background;
+        background: transparent;
         padding: 0 1;
     }
 
