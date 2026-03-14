@@ -70,6 +70,17 @@ class ScrollbackScreen(pyte.Screen):
             self.scrollback.append(dict(self.buffer[0]))
         super().index()
 
+    def resize(self, lines=None, columns=None):
+        """Capture lines that would be dropped when the screen shrinks in height."""
+        lines = lines or self.lines
+        if lines < self.lines:
+            # pyte's resize() will call delete_lines() for the top rows,
+            # bypassing index().  Save those rows to scrollback ourselves.
+            drop = self.lines - lines
+            for y in range(drop):
+                self.scrollback.append(dict(self.buffer[y]))
+        super().resize(lines, columns)
+
 
 # ---------------------------------------------------------------------------
 # ScrollableTerminal — ScrollView-based terminal widget
