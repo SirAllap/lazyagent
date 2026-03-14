@@ -19,6 +19,7 @@ from lazyagent.widgets.help_modal import HelpModal
 from lazyagent.widgets.create_worktree_modal import CreateWorktreeModal, CreateWorktreeResult
 from lazyagent.widgets.pr_status_bar import PrStatusBar
 from lazyagent.widgets.prompt_modal import SpawnModal
+from lazyagent.widgets.usage_panel import UsagePanel
 from lazyagent.widgets.monitored_terminal import MonitoredTerminal
 from lazyagent.widgets.scrollable_terminal import ScrollableTerminal
 from lazyagent.widgets.worktree_list import WorktreeList, WorktreeListItem
@@ -85,6 +86,9 @@ class LazyAgent(App):
     .agent-zoomed WorktreeList WorktreeListItem.-highlight {
         border: round $accent;
     }
+    .agent-zoomed #bottom-row {
+        height: 3;
+    }
     .agent-zoomed #terminal-pane {
         height: 3;
     }
@@ -104,6 +108,7 @@ class LazyAgent(App):
         Binding("2", "focus_agent", show=False),
         Binding("3", "focus_diff", show=False),
         Binding("4", "focus_terminal", show=False),
+        Binding("5", "focus_usage", show=False),
         Binding("question_mark", "help", "Help"),
         Binding("l", "next_pane", show=False),
         Binding("h", "prev_pane", show=False),
@@ -138,6 +143,7 @@ class LazyAgent(App):
         self.set_interval(30, self._refresh_git_statuses)
         self.set_interval(30, self._refresh_selected_diff)
         self.set_interval(60, self._refresh_pr_status)
+        self.set_interval(60, self._refresh_usage_panel)
 
     def on_descendant_focus(self, event) -> None:
         zoomed = isinstance(event.widget, MonitoredTerminal)
@@ -146,6 +152,11 @@ class LazyAgent(App):
             wt_list = self.query_one(WorktreeList)
             wt_list.set_compact(zoomed)
             wt_list.border_title = "" if zoomed else "[1] Worktrees"
+        except Exception:
+            pass
+        try:
+            for panel in self.query(UsagePanel):
+                panel.set_compact(zoomed)
         except Exception:
             pass
         self._update_key_hints(event.widget)
@@ -165,6 +176,15 @@ class LazyAgent(App):
         elif isinstance(focused_widget, ScrollableTerminal):
             # Terminal pane focused
             hints.append(_hint("Exit terminal", "alt+x"))
+        elif isinstance(focused_widget, UsagePanel):
+            # Usage pane focused
+            tab_names = ["Usage", "Stats", "Tools"]
+            current = tab_names[focused_widget._tab_index]
+            hints.append(_hint(f"Tab", f"[bold]{current}[/bold]"))
+            hints.append(_hint("Prev tab", "\["))
+            hints.append(_hint("Next tab", "]"))
+            hints.append(_hint("Scroll", "j/k"))
+            hints.append(_hint("Navigate", "h/l"))
         else:
             # Sidebar, diff, or other pane
             hints.append(_hint("Navigate", "h/l"))
@@ -286,8 +306,16 @@ class LazyAgent(App):
             panel.update_diff(diff_text)
 
     @work(thread=True)
+    def _refresh_usage_panel(self) -> None:
+        try:
+            for panel in self.query(UsagePanel):
+                panel.refresh_data()
+        except Exception:
+            pass
+
+    @work(thread=True, exclusive=True, group="pr_status")
     def _refresh_pr_status(self) -> None:
-        """Refresh PR/CI status for the selected worktree (runs in thread)."""
+        """Refresh PR/CI status for the selected worktree (background thread)."""
         wt = self._selected_worktree
         if wt is None:
             return
@@ -453,7 +481,14 @@ class LazyAgent(App):
             except Exception:
                 pass
 
-    _PANE_ACTIONS = ["focus_sidebar", "focus_agent", "focus_diff", "focus_terminal"]
+    def action_focus_usage(self) -> None:
+        self._current_focus_pane = 5
+        try:
+            self.query_one(UsagePanel).focus()
+        except Exception:
+            pass
+
+    _PANE_ACTIONS = ["focus_sidebar", "focus_agent", "focus_diff", "focus_terminal", "focus_usage"]
 
     def action_next_pane(self) -> None:
         n = len(self._PANE_ACTIONS)
@@ -464,6 +499,26 @@ class LazyAgent(App):
         n = len(self._PANE_ACTIONS)
         prev_p = ((self._current_focus_pane - 2) % n) + 1
         getattr(self, f"action_{self._PANE_ACTIONS[prev_p - 1]}")()
+
+    def _has_running_agents(self) -> bool:
+        active = {AgentStatus.RUNNING, AgentStatus.WAITING, AgentStatus.POSSIBLY_HANGED}
+        return any(s.status in active for s in self._agent_states.values())
+
+    def action_quit(self) -> None:
+        if self._has_running_agents():
+            count = sum(
+                1 for s in self._agent_states.values()
+                if s.status in {AgentStatus.RUNNING, AgentStatus.WAITING, AgentStatus.POSSIBLY_HANGED}
+            )
+            self.push_screen(
+                ConfirmModal(
+                    "Agents still running",
+                    f"{count} agent{'s' if count > 1 else ''} still working. Quit and stop them all?",
+                ),
+                callback=lambda ok: self.exit() if ok else None,
+            )
+        else:
+            self.exit()
 
     def action_refresh(self) -> None:
         self._load_worktrees()
