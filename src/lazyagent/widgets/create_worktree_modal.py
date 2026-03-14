@@ -29,13 +29,13 @@ class CreateWorktreeModal(ModalScreen[CreateWorktreeResult | None]):
         width: 56;
         height: auto;
         border: round $accent;
-        background: transparent;
+        background: $panel;
         padding: 1 2;
     }
 
     CreateWorktreeModal Input {
         border: round $secondary;
-        background: transparent;
+        background: $surface;
     }
 
     CreateWorktreeModal .input-wrap {
@@ -49,7 +49,7 @@ class CreateWorktreeModal(ModalScreen[CreateWorktreeResult | None]):
 
     CreateWorktreeModal Select {
         border: round $secondary;
-        background: transparent;
+        background: $surface;
     }
 
     CreateWorktreeModal Select:focus {
@@ -57,7 +57,7 @@ class CreateWorktreeModal(ModalScreen[CreateWorktreeResult | None]):
     }
 
     CreateWorktreeModal SelectCurrent {
-        background: transparent;
+        background: $surface;
         border: none;
         padding: 0 1;
     }

@@ -97,7 +97,7 @@ class _StopConfirmModal(ModalScreen[bool]):
         width: 45;
         height: auto;
         border: round $accent;
-        background: transparent;
+        background: $panel;
         padding: 1 2;
     }
     _StopConfirmModal .modal-title {
@@ -159,26 +159,31 @@ class LazyAgent(App):
 
     CSS = """
     App {
-        background: transparent;
+        background: $background;
     }
     Screen {
         layout: vertical;
-        background: transparent;
+        background: $background;
+    }
+    /* Restore a proper overlay for modal screens — Screen rule above would
+       otherwise make ModalScreen transparent, causing a black canvas. */
+    ModalScreen {
+        background: $surface 60%;
     }
     #global-status-bar {
         height: 3;
-        background: transparent;
+        background: $background;
     }
     #main-area {
         height: 1fr;
         layout: horizontal;
         padding-bottom: 0;
-        background: transparent;
+        background: $background;
     }
     #sidebar {
         width: 36;
         layout: vertical;
-        background: transparent;
+        background: $background;
     }
     #pr-status-bar {
         height: auto;
@@ -187,7 +192,7 @@ class LazyAgent(App):
     }
     #key-hints {
         height: 1;
-        background: transparent;
+        background: $background;
         padding: 0 1;
     }
 
@@ -282,7 +287,9 @@ class LazyAgent(App):
             scheme = _system_color_scheme()
             if scheme == "light":
                 self.theme = "textual-light"
-            elif scheme == "dark":
+            else:
+                # Default to dark theme when detection fails (e.g. Hyprland/omarchy)
+                # or when the system is explicitly dark.
                 self.theme = "textual-dark"
         self._load_worktrees()
         self._load_config()

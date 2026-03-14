@@ -111,7 +111,7 @@ class HelpModal(ModalScreen[None]):
         width: 70;
         height: 85%;
         border: round $accent;
-        background: transparent;
+        background: $panel;
         padding: 0;
     }
 
@@ -123,13 +123,13 @@ class HelpModal(ModalScreen[None]):
     HelpModal ListView {
         height: 1fr;
         padding: 0 1;
-        background: transparent;
+        background: $panel;
     }
 
     HelpModal ListView > ListItem {
         height: 1;
         padding: 0;
-        background: transparent;
+        background: $panel;
     }
 
     HelpModal ListView > ListItem.--header {

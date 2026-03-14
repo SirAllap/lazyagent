@@ -20,7 +20,7 @@ class SpawnModal(ModalScreen[bool | None]):
         width: 50;
         height: auto;
         border: round $accent;
-        background: transparent;
+        background: $panel;
         padding: 1 2;
     }
 
