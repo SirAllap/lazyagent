@@ -638,6 +638,7 @@ class ScrollableTerminal(ScrollView, can_focus=True):
             ["wl-copy"],
             ["xclip", "-selection", "clipboard"],
             ["xsel", "--clipboard", "--input"],
+            ["pbcopy"],
         ):
             try:
                 proc = await asyncio.create_subprocess_exec(

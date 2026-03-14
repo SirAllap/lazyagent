@@ -123,8 +123,8 @@ def _build_usage_tab(data: UsageData, width: int) -> list[Text]:
 
     if not shown:
         lines.append(Text(""))
-        lines.append(Text("No usage data from waybar cache", style=_DIM))
-        lines.append(Text("Run Claude to populate", style=_DIM))
+        lines.append(Text("No usage data yet", style=_DIM))
+        lines.append(Text("Fetching… (or run claude once)", style=_DIM))
 
 
     return lines

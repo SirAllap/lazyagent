@@ -14,13 +14,15 @@ import re
 import select
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
 
 
-CACHE_FILE = Path("/tmp/lazyagent_claude_usage.json")
-LOCK_FILE  = Path("/tmp/lazyagent_claude_fetch.lock")
+_TMPDIR = Path(tempfile.gettempdir())
+CACHE_FILE = _TMPDIR / "lazyagent_claude_usage.json"
+LOCK_FILE  = _TMPDIR / "lazyagent_claude_fetch.lock"
 CACHE_TTL   = 120  # seconds before a refresh is triggered
 EXIT_WAIT   = 2.0
 

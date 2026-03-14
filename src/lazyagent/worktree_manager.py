@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -233,7 +234,7 @@ class WorktreeManager:
                 files = result.stdout.strip().splitlines()
                 for f in files:
                     diff_result = subprocess.run(
-                        ["git", "diff", "--no-index", "--", "/dev/null", f],
+                        ["git", "diff", "--no-index", "--", os.devnull, f],
                         capture_output=True,
                         text=True,
                         cwd=cwd,

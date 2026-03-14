@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import os
 import shlex
+import shutil
 
 from rich.style import Style
 from rich.text import Text
@@ -354,6 +355,7 @@ class DiffView(ScrollView, can_focus=True):
             ["wl-copy"],
             ["xclip", "-selection", "clipboard"],
             ["xsel", "--clipboard", "--input"],
+            ["pbcopy"],
         ):
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -604,11 +606,12 @@ class WorktreePanel(Container):
                 f"{env_exports()}"
                 f" && cd {shlex.quote(self.worktree_path)}"
                 f" && {_TERMINAL_UNSET_CMD}"
-                f" && export HISTFILE=/dev/null"
+                f" && export HISTFILE={shlex.quote(os.devnull)}"
                 f" && exec {shlex.quote(shell)} -l"
             )
+            launcher = shutil.which("bash") or shutil.which("sh") or "sh"
             terminal = ScrollableTerminal(
-                command=f"bash -c {shlex.quote(script)}",
+                command=f"{launcher} -c {shlex.quote(script)}",
                 restart_on_disconnect=True,
                 id="terminal-widget",
             )

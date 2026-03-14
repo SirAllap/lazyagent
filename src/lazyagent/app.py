@@ -292,6 +292,7 @@ class LazyAgent(App):
         self.set_interval(30, self._refresh_selected_diff)
         self.set_interval(60, self._refresh_pr_status)
         self.set_interval(60, self._refresh_usage_panel)
+        self._maybe_refresh_usage_cache()  # fetch immediately if cache is stale
 
     def on_descendant_focus(self, event) -> None:
         zoomed = isinstance(event.widget, MonitoredTerminal)
