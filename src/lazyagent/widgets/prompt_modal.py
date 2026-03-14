@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -45,14 +46,29 @@ class SpawnModal(ModalScreen[bool | None]):
         Binding("escape", "cancel", "Cancel", show=False),
     ]
 
-    def __init__(self, worktree_label: str, **kwargs) -> None:
+    _NAV_ACTIONS = {
+        "alt+h": "action_prev_pane",
+        "alt+l": "action_next_pane",
+        "alt+k": "action_pane_up",
+        "alt+j": "action_pane_down",
+    }
+
+    def on_key(self, event: events.Key) -> None:
+        action = self._NAV_ACTIONS.get(event.key)
+        if action:
+            self.dismiss(None)
+            # Trigger pane navigation on the app after dismiss
+            getattr(self.app, action)()
+
+    def __init__(self, worktree_label: str, title: str = "Spawn agent in", **kwargs) -> None:
         super().__init__(**kwargs)
         self.worktree_label = worktree_label
+        self._title = title
 
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Static(
-                f"Spawn agent in [bold]{self.worktree_label}[/bold]",
+                f"{self._title} [bold]{self.worktree_label}[/bold]",
                 classes="modal-title",
             )
             yield Static(

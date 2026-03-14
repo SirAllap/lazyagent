@@ -43,11 +43,21 @@ class AgentProvider:
     dangerous_flag: str
     supports_append_system_prompt: bool = False
 
-    def build_command(self, worktree_path: str, skip_permissions: bool = False) -> str:
+    def build_command(
+        self,
+        worktree_path: str,
+        skip_permissions: bool = False,
+        resume: bool = False,
+        continue_last: bool = False,
+    ) -> str:
         """Build the full shell command used to launch this provider."""
         parts = [self.executable]
         if skip_permissions:
             parts.append(self.dangerous_flag)
+        if continue_last:
+            parts.append("--continue")
+        elif resume:
+            parts.append("--resume")
         if self.supports_append_system_prompt:
             parts.extend(["--append-system-prompt", SENTINEL_SYSTEM_PROMPT])
 
