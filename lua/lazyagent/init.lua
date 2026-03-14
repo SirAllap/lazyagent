@@ -20,6 +20,17 @@ function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", defaults, opts or {})
 end
 
+-- Set <Esc><Esc> on any lazyagent terminal buffer to hide the window.
+vim.api.nvim_create_autocmd("TermOpen", {
+  callback = function(ev)
+    if vim.api.nvim_buf_get_name(ev.buf):match("lazyagent") then
+      vim.keymap.set("t", "<Esc><Esc>", function()
+        M.toggle()
+      end, { buffer = ev.buf, desc = "Hide LazyAgent" })
+    end
+  end,
+})
+
 -- ---------------------------------------------------------------------------
 -- Persistent buffer state (survives window close)
 -- ---------------------------------------------------------------------------
@@ -96,10 +107,6 @@ local function open_builtin(cmd, cfg)
         end
       end,
     })
-    -- <Esc><Esc> in terminal mode hides the window without quitting lazyagent.
-    vim.keymap.set("t", "<Esc><Esc>", function()
-      M.toggle()
-    end, { buffer = _buf, desc = "Hide LazyAgent" })
   end
 
   -- If already visible, just focus it.
