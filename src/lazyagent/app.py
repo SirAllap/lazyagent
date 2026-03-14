@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 
 from textual import events, work
@@ -25,6 +26,29 @@ from lazyagent.widgets.monitored_terminal import MonitoredTerminal
 from lazyagent.widgets.scrollable_terminal import ScrollableTerminal
 from lazyagent.widgets.worktree_list import WorktreeList, WorktreeListItem
 from lazyagent.worktree_manager import WorktreeManager, WorktreeManagerError, find_repo_root
+
+def _system_color_scheme() -> str | None:
+    """Detect system preferred color scheme via gsettings (GNOME/GTK).
+
+    Returns 'dark', 'light', or None if undetectable.
+    """
+    try:
+        result = subprocess.run(
+            ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        if result.returncode == 0:
+            val = result.stdout.strip().strip("'")
+            if "dark" in val:
+                return "dark"
+            if "light" in val:
+                return "light"
+    except Exception:
+        pass
+    return None
+
 
 _CMD_SENT_MSG = "Command sent to terminal — press r to refresh when done"
 _SEP = " [dim yellow]|[/dim yellow] "
@@ -106,20 +130,27 @@ class LazyAgent(App):
     ENABLE_COMMAND_PALETTE = False
 
     CSS = """
+    App {
+        background: transparent;
+    }
     Screen {
         layout: vertical;
+        background: transparent;
     }
     #global-status-bar {
         height: 3;
+        background: transparent;
     }
     #main-area {
         height: 1fr;
         layout: horizontal;
         padding-bottom: 0;
+        background: transparent;
     }
     #sidebar {
         width: 36;
         layout: vertical;
+        background: transparent;
     }
     #pr-status-bar {
         height: auto;
@@ -219,6 +250,12 @@ class LazyAgent(App):
         yield Static("", id="key-hints", markup=True)
 
     def on_mount(self) -> None:
+        if not os.environ.get("TEXTUAL_THEME"):
+            scheme = _system_color_scheme()
+            if scheme == "light":
+                self.theme = "textual-light"
+            elif scheme == "dark":
+                self.theme = "textual-dark"
         self._load_worktrees()
         self._load_config()
         self.set_interval(60, self._check_hangs)

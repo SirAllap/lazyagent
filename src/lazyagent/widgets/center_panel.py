@@ -457,11 +457,13 @@ class WorktreePanel(Container):
         layout: vertical;
         width: 1fr;
         height: 1fr;
+        background: transparent;
     }}
     #agent-tabs {{
         height: 2fr;
         border: round $secondary;
         border-title-color: $text-muted;
+        background: transparent;
     }}
     #agent-tabs:focus-within {{
         border: round $accent;
@@ -472,15 +474,19 @@ class WorktreePanel(Container):
     }}
     #agent-tabs ContentSwitcher {{
         height: 1fr;
+        background: transparent;
     }}
     #agent-tabs TabPane {{
         height: 1fr;
+        background: transparent;
     }}
     #agent-tab {{
         height: 1fr;
+        background: transparent;
     }}
     #diff-tab {{
         height: 1fr;
+        background: transparent;
     }}
     DiffView {{
         height: 1fr;
@@ -493,12 +499,14 @@ class WorktreePanel(Container):
     #bottom-row {{
         height: 1fr;
         layout: horizontal;
+        background: transparent;
     }}
     #terminal-pane {{
         width: 2fr;
         height: 1fr;
         border: round $secondary;
         border-title-color: $text-muted;
+        background: transparent;
     }}
     #terminal-pane:focus-within {{
         border: round $accent;
@@ -507,12 +515,14 @@ class WorktreePanel(Container):
     #usage-panel {{
         width: 1fr;
         height: 1fr;
+        background: transparent;
     }}
     #agent-placeholder {{
         width: 1fr;
         height: 1fr;
         content-align: center middle;
         color: $text-muted;
+        background: transparent;
     }}
     #agent-placeholder:focus {{
         color: $text-muted;
@@ -522,6 +532,7 @@ class WorktreePanel(Container):
         height: 1fr;
         content-align: center middle;
         color: $text-muted;
+        background: transparent;
     }}
     ScrollableTerminal {{ height: 1fr; width: 1fr; }}
     """
@@ -701,13 +712,15 @@ class CenterPanel(Container):
     CenterPanel {
         width: 1fr;
         height: 1fr;
+        background: transparent;
     }
-    ContentSwitcher { height: 1fr; }
+    ContentSwitcher { height: 1fr; background: transparent; }
     #center-placeholder {
         width: 1fr;
         height: 1fr;
         content-align: center middle;
         color: $text-muted;
+        background: transparent;
     }
     """
 

@@ -20,6 +20,7 @@ class PrStatusBar(Static):
         border: round $secondary;
         border-title-color: $text-muted;
         padding: 0 1;
+        background: transparent;
     }
     """
 
