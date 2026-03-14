@@ -369,6 +369,10 @@ class DiffView(ScrollView, can_focus=True):
                 continue
 
 
+class _FocusableStatic(Static, can_focus=True):
+    """Static that can receive focus (for placeholder panes)."""
+
+
 def _panel_id(worktree_path: str) -> str:
     """Derive a DOM-safe ID from a worktree path."""
     return "wp-" + hashlib.md5(worktree_path.encode()).hexdigest()[:8]
@@ -466,6 +470,12 @@ class WorktreePanel(Container):
     #agent-tabs Tabs {{
         display: none;
     }}
+    #agent-tabs ContentSwitcher {{
+        height: 1fr;
+    }}
+    #agent-tabs TabPane {{
+        height: 1fr;
+    }}
     #agent-tab {{
         height: 1fr;
     }}
@@ -504,6 +514,9 @@ class WorktreePanel(Container):
         content-align: center middle;
         color: $text-muted;
     }}
+    #agent-placeholder:focus {{
+        color: $text-muted;
+    }}
     #terminal-placeholder {{
         width: 1fr;
         height: 1fr;
@@ -521,8 +534,8 @@ class WorktreePanel(Container):
     def compose(self):
         with TabbedContent(id="agent-tabs"):
             with TabPane("Agent", id="agent-tab"):
-                yield Static(
-                    "Press [bold]s[/bold] or [bold]2[/bold] to spawn agent",
+                yield _FocusableStatic(
+                    "[bold]s[/bold] spawn · [bold]S[/bold] continue · [bold]R[/bold] resume",
                     id="agent-placeholder",
                 )
             with TabPane("Diff", id="diff-tab"):
@@ -552,6 +565,22 @@ class WorktreePanel(Container):
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if event.pane is not None:
             self._update_tab_title(event.pane.id or "agent-tab")
+
+    def on_click(self, event: events.Click) -> None:
+        """Click on agent-tabs border title to switch between Agent and Diff."""
+        tabs = self.query_one("#agent-tabs", TabbedContent)
+        if event.screen_y == tabs.region.y:
+            # Clicked on the top border — find Agent vs Diff
+            local_x = event.screen_x - tabs.region.x
+            # Title: "╭─ [2] Agent  [3] Diff ─╮"
+            # Agent starts around pos 3, Diff starts around pos 15
+            title_text = "[2] Agent  [3] Diff"
+            agent_end = 3 + len("[2] Agent")
+            diff_start = agent_end + 2  # two spaces
+            if 3 <= local_x < agent_end:
+                self.switch_to_tab("agent-tab")
+            elif diff_start <= local_x < diff_start + len("[3] Diff"):
+                self.switch_to_tab("diff-tab")
 
     def _try_start_terminal(self) -> None:
         """Try to mount a real terminal widget."""
@@ -616,7 +645,7 @@ class WorktreePanel(Container):
         except Exception:
             pane.mount(
                 Static(
-                    "Press [bold]s[/bold] or [bold]2[/bold] to spawn agent",
+                    "[bold]s[/bold] spawn · [bold]S[/bold] continue · [bold]R[/bold] resume",
                     id="agent-placeholder",
                 )
             )
@@ -625,6 +654,8 @@ class WorktreePanel(Container):
         self,
         skip_permissions: bool = False,
         agent_provider: str = DEFAULT_AGENT_PROVIDER,
+        resume: bool = False,
+        continue_last: bool = False,
     ) -> None:
         """Spawn the configured coding agent process in the Agent pane."""
         pane = self.query_one("#agent-tab", TabPane)
@@ -646,6 +677,8 @@ class WorktreePanel(Container):
         command = provider.build_command(
             self.worktree_path,
             skip_permissions=skip_permissions,
+            resume=resume,
+            continue_last=continue_last,
         )
 
         terminal = MonitoredTerminal(
