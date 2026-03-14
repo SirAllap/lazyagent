@@ -124,6 +124,7 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         self._sel_start: tuple[int, int] | None = None  # (virtual_row, col)
         self._sel_end: tuple[int, int] | None = None
         self._selecting: bool = False
+        self._sel_widget_start: tuple[int, int] | None = None  # widget-local on mouse_down
 
         # pyte screen + stream
         self._screen = ScrollbackScreen(_DEFAULT_COLS, _DEFAULT_ROWS)
@@ -295,9 +296,12 @@ class ScrollableTerminal(ScrollView, can_focus=True):
 
         def _restore() -> None:
             self._update_virtual_size()
-            self.refresh()
             if self._follow_output:
+                # scroll_end triggers its own refresh — don't call refresh()
+                # first or we get a visible flash at the wrong scroll position.
                 self.scroll_end(animate=False, immediate=True, x_axis=False)
+            else:
+                self.refresh()
 
         # Defer until after the first layout pass so the widget has
         # a real size and scrollable_content_region is valid.
@@ -546,15 +550,24 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         # When the PTY app has mouse tracking, only select with Shift held.
         if self.mouse_tracking and not event.shift:
             return
-        self._selecting = True
-        self._sel_start = self._sel_end = self._widget_to_virtual(event.x, event.y)
+        # Record widget-local start position — actual selection begins only
+        # if the mouse moves (drag), so a plain click never selects text.
+        self._sel_widget_start = (event.x, event.y)
+        self._sel_start = self._sel_end = None
+        self._selecting = False
         self.capture_mouse()
-        self.refresh()
 
     async def on_mouse_move(self, event: events.MouseMove) -> None:
-        if not self._selecting:
+        if self._sel_widget_start is None:
             return
         event.stop()
+        wx, wy = self._sel_widget_start
+        # Start selecting only once the mouse has moved at least one cell.
+        if not self._selecting and (event.x != wx or event.y != wy):
+            self._selecting = True
+            self._sel_start = self._widget_to_virtual(wx, wy)
+        if not self._selecting:
+            return
         new_pos = self._widget_to_virtual(event.x, event.y)
         if new_pos == self._sel_end:
             return  # same cell — skip repaint
@@ -562,10 +575,18 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         self.refresh()
 
     async def on_mouse_up(self, event: events.MouseUp) -> None:
-        if not self._selecting or event.button != 1:
+        self._sel_widget_start = None
+        if event.button != 1:
+            self.release_mouse()
+            return
+        self.release_mouse()
+        if not self._selecting:
+            # Plain click — clear any previous selection.
+            self._sel_start = self._sel_end = None
+            self._selecting = False
+            self.refresh()
             return
         self._selecting = False
-        self.release_mouse()
         self._sel_end = self._widget_to_virtual(event.x, event.y)
         text = self._get_selected_text()
         if text:
