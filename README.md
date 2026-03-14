@@ -47,7 +47,7 @@ return {
   build = "pipx install lazyagent",
   cmd = { "LazyAgent", "LazyAgentToggle" },
   keys = {
-    { "<leader>la", "<cmd>LazyAgent<cr>", desc = "LazyAgent" },
+    { "<leader>la", "<cmd>LazyAgentToggle<cr>", desc = "LazyAgent" },
   },
   opts = {},
 }

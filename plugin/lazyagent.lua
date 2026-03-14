@@ -2,7 +2,7 @@ vim.api.nvim_create_user_command("LazyAgent", function()
   require("lazyagent").open()
 end, { desc = "Open LazyAgent TUI" })
 
--- Alias for toggle semantics (same behaviour, friendlier name)
+-- Toggle: hides the window without killing the process, reopens on next call.
 vim.api.nvim_create_user_command("LazyAgentToggle", function()
-  require("lazyagent").open()
+  require("lazyagent").toggle()
 end, { desc = "Toggle LazyAgent TUI" })

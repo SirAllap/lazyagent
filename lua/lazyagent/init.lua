@@ -21,6 +21,27 @@ function M.setup(opts)
 end
 
 -- ---------------------------------------------------------------------------
+-- Persistent buffer state (survives window close)
+-- ---------------------------------------------------------------------------
+
+local _buf = nil -- terminal buffer kept alive between opens
+
+local function _buf_valid()
+  return _buf ~= nil and vim.api.nvim_buf_is_valid(_buf)
+end
+
+-- Return the window currently showing our buffer, or nil.
+local function _find_win()
+  if not _buf_valid() then return nil end
+  for _, w in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(w) == _buf then
+      return w
+    end
+  end
+  return nil
+end
+
+-- ---------------------------------------------------------------------------
 -- Backends
 -- ---------------------------------------------------------------------------
 
@@ -29,49 +50,70 @@ local function open_snacks(cmd, cfg)
   Snacks.terminal.toggle(cmd, {
     win = {
       position = "float",
-      width = cfg.float.width,
-      height = cfg.float.height,
-      border = cfg.float.border,
+      width    = cfg.float.width,
+      height   = cfg.float.height,
+      border   = cfg.float.border,
       relative = "editor",
     },
   })
 end
 
-local function open_builtin(cmd, cfg)
-  local cols = vim.o.columns
-  local lines = vim.o.lines
-  local width = math.floor(cols * cfg.float.width)
+local function _open_float_win(cfg)
+  local cols   = vim.o.columns
+  local lines  = vim.o.lines
+  local width  = math.floor(cols * cfg.float.width)
   local height = math.floor(lines * cfg.float.height)
 
-  local buf = vim.api.nvim_create_buf(false, true)
-  local win = vim.api.nvim_open_win(buf, true, {
+  local win = vim.api.nvim_open_win(_buf, true, {
     relative = "editor",
-    width = width,
-    height = height,
-    col = math.floor((cols - width) / 2),
-    row = math.floor((lines - height) / 2),
-    style = "minimal",
-    border = cfg.float.border == "none" and "none" or cfg.float.border,
+    width    = width,
+    height   = height,
+    col      = math.floor((cols - width) / 2),
+    row      = math.floor((lines - height) / 2),
+    style    = "minimal",
+    border   = cfg.float.border == "none" and "none" or cfg.float.border,
   })
-
-  vim.fn.termopen(cmd, {
-    on_exit = function()
-      if vim.api.nvim_win_is_valid(win) then
-        vim.api.nvim_win_close(win, true)
-      end
-      if vim.api.nvim_buf_is_valid(buf) then
-        vim.api.nvim_buf_delete(buf, { force = true })
-      end
-    end,
-  })
-
   vim.cmd("startinsert")
+  return win
+end
+
+local function open_builtin(cmd, cfg)
+  -- Reuse existing buffer if the process is still running.
+  if not _buf_valid() then
+    _buf = vim.api.nvim_create_buf(false, true)
+    vim.fn.termopen(cmd, {
+      on_exit = function()
+        -- Process exited — clean up and forget the buffer.
+        local b = _buf
+        _buf = nil
+        for _, w in ipairs(vim.api.nvim_list_wins()) do
+          if vim.api.nvim_win_is_valid(w) and vim.api.nvim_win_get_buf(w) == b then
+            vim.api.nvim_win_close(w, true)
+          end
+        end
+        if b and vim.api.nvim_buf_is_valid(b) then
+          vim.api.nvim_buf_delete(b, { force = true })
+        end
+      end,
+    })
+  end
+
+  -- If already visible, just focus it.
+  local existing = _find_win()
+  if existing then
+    vim.api.nvim_set_current_win(existing)
+    vim.cmd("startinsert")
+    return
+  end
+
+  _open_float_win(cfg)
 end
 
 -- ---------------------------------------------------------------------------
 -- Public API
 -- ---------------------------------------------------------------------------
 
+-- Open (or focus) the lazyagent window.
 function M.open()
   local cmd = M.config.cmd
 
@@ -108,6 +150,37 @@ function M.open()
   else
     open_builtin(cmd, M.config)
   end
+end
+
+-- Toggle: hide the window if visible, show/create it if hidden.
+function M.toggle()
+  local cmd = M.config.cmd
+  local win  = M.config.win
+
+  -- snacks handles its own toggle
+  if win == "float" and _G.Snacks and Snacks.terminal then
+    if vim.fn.executable(cmd) == 0 then
+      vim.notify("[lazyagent] " .. cmd .. " not found in PATH.", vim.log.levels.ERROR)
+      return
+    end
+    open_snacks(cmd, M.config)
+    return
+  end
+
+  -- builtin float: hide if visible, show if hidden
+  if win == "float" then
+    local w = _find_win()
+    if w then
+      -- Window is open — just close the window, keep the buffer alive.
+      vim.api.nvim_win_close(w, false)
+      return
+    end
+    M.open()
+    return
+  end
+
+  -- For split/vsplit/tab there's no meaningful hide — just open.
+  M.open()
 end
 
 return M
