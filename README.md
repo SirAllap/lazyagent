@@ -47,7 +47,8 @@ return {
   build = "pipx install lazyagent",
   cmd = { "LazyAgent", "LazyAgentToggle" },
   keys = {
-    { "<leader>la", "<cmd>LazyAgentToggle<cr>", desc = "LazyAgent" },
+    -- <leader>l is taken by Lazy in LazyVim — use any free binding you prefer
+    { "<leader>ag", "<cmd>LazyAgentToggle<cr>", desc = "LazyAgent" },
   },
   opts = {},
 }
