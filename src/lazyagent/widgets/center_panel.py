@@ -24,6 +24,7 @@ from lazyagent.models import GitStatus
 from lazyagent.styles import SCROLLBAR_CSS
 from lazyagent.widgets.monitored_terminal import MonitoredTerminal
 from lazyagent.widgets.scrollable_terminal import ScrollableTerminal
+from lazyagent.widgets.usage_panel import UsagePanel
 
 # Unset all history/preexec vars that the login shell may inherit.
 # Uses bash ${!prefix@} expansion to catch everything at runtime.
@@ -479,7 +480,12 @@ class WorktreePanel(Container):
         background: transparent;
 {SCROLLBAR_CSS}
     }}
+    #bottom-row {{
+        height: 1fr;
+        layout: horizontal;
+    }}
     #terminal-pane {{
+        width: 2fr;
         height: 1fr;
         border: round $secondary;
         border-title-color: $text-muted;
@@ -487,6 +493,10 @@ class WorktreePanel(Container):
     #terminal-pane:focus-within {{
         border: round $accent;
         border-title-color: $accent;
+    }}
+    #usage-panel {{
+        width: 1fr;
+        height: 1fr;
     }}
     #agent-placeholder {{
         width: 1fr;
@@ -517,11 +527,13 @@ class WorktreePanel(Container):
                 )
             with TabPane("Diff", id="diff-tab"):
                 yield DiffView(id="diff-scroll")
-        with Container(id="terminal-pane"):
-            yield Static(
-                "Terminal",
-                id="terminal-placeholder",
-            )
+        with Horizontal(id="bottom-row"):
+            with Container(id="terminal-pane"):
+                yield Static(
+                    "Terminal",
+                    id="terminal-placeholder",
+                )
+            yield UsagePanel(id="usage-panel")
 
     def on_mount(self) -> None:
         terminal_pane = self.query_one("#terminal-pane", Container)
