@@ -461,12 +461,14 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         if self.emulator is None:
             return
 
-        # Alt+h/j/k/l → pane navigation (works even inside terminal)
+        # Alt+key → app navigation (works even inside terminal)
         _PANE_NAV = {
             "alt+h": "action_prev_pane",
             "alt+l": "action_next_pane",
             "alt+k": "action_pane_up",
             "alt+j": "action_pane_down",
+            "alt+u": "action_prev_worktree",
+            "alt+i": "action_next_worktree",
         }
         action = _PANE_NAV.get(event.key)
         if action:

@@ -18,6 +18,8 @@ _KEYBINDINGS: list[tuple[str | None, str, str]] = [
      "Cycle focus between panes left and right."),
     ("Alt+h/j/k/l", "Move panes (works inside terminals)",
      "Navigate between panes even from agent or terminal — no need to detach first."),
+    ("Alt+u / Alt+i", "Prev / next worktree (stays on current pane)",
+     "Cycle through worktrees without leaving the agent or terminal pane."),
     ("j / k", "Move down / up",
      "Move selection in worktree list or scroll in focused pane."),
     ("[ / ]", "Previous / next tab",
