@@ -96,6 +96,10 @@ local function open_builtin(cmd, cfg)
         end
       end,
     })
+    -- <Esc><Esc> in terminal mode hides the window without quitting lazyagent.
+    vim.keymap.set("t", "<Esc><Esc>", function()
+      M.toggle()
+    end, { buffer = _buf, desc = "Hide LazyAgent" })
   end
 
   -- If already visible, just focus it.
