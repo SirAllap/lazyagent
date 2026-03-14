@@ -4,11 +4,12 @@ import argparse
 import os
 import sys
 
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.widgets import Static
-from textual import work
 
 from lazyagent.config import Config, format_command, load_config
 from lazyagent.messages import AgentExited, AgentStatusChanged
@@ -31,6 +32,72 @@ _SEP = " [dim yellow]|[/dim yellow] "
 
 def _hint(label: str, key: str) -> str:
     return f"[yellow]{label}:[/yellow] [bold yellow]{key}[/bold yellow]"
+
+
+class _StopConfirmModal(ModalScreen[bool]):
+    """Quick confirm: press x again to stop, c/esc to cancel."""
+
+    DEFAULT_CSS = """
+    _StopConfirmModal {
+        align: center middle;
+    }
+    _StopConfirmModal > Vertical {
+        width: 45;
+        height: auto;
+        border: round $accent;
+        background: transparent;
+        padding: 1 2;
+    }
+    _StopConfirmModal .modal-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    _StopConfirmModal .modal-hint {
+        color: $text-muted;
+        margin-top: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("x", "confirm", show=False),
+        Binding("c", "cancel", show=False),
+        Binding("escape", "cancel", show=False),
+    ]
+
+    _NAV_ACTIONS = {
+        "alt+h": "action_prev_pane",
+        "alt+l": "action_next_pane",
+        "alt+k": "action_pane_up",
+        "alt+j": "action_pane_down",
+    }
+
+    def __init__(self, worktree_label: str, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._label = worktree_label
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Static(
+                f"Stop agent in [bold]{self._label}[/bold]?",
+                classes="modal-title",
+            )
+            yield Static(
+                "[bold yellow]x[/bold yellow] confirm stop  "
+                "[bold cyan]c[/bold cyan] cancel",
+                classes="modal-hint",
+            )
+
+    def on_key(self, event: events.Key) -> None:
+        action = self._NAV_ACTIONS.get(event.key)
+        if action:
+            self.dismiss(False)
+            getattr(self.app, action)()
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
 
 
 class LazyAgent(App):
@@ -118,6 +185,8 @@ class LazyAgent(App):
         Binding("alt+h", "prev_pane", show=False, priority=True),
         Binding("alt+k", "pane_up", show=False, priority=True),
         Binding("alt+j", "pane_down", show=False, priority=True),
+        Binding("alt+u", "prev_worktree", show=False, priority=True),
+        Binding("alt+i", "next_worktree", show=False, priority=True),
     ]
 
     def __init__(self, repo_path: str | None = None) -> None:
@@ -180,10 +249,12 @@ class LazyAgent(App):
             # Agent pane focused
             hints.append(_hint("Detach", "alt+x"))
             hints.append(_hint("Navigate", "alt+hjkl"))
+            hints.append(_hint("Prev/Next WT", "alt+u/i"))
         elif isinstance(focused_widget, ScrollableTerminal):
             # Terminal pane focused
             hints.append(_hint("Exit terminal", "alt+x"))
             hints.append(_hint("Navigate", "alt+hjkl"))
+            hints.append(_hint("Prev/Next WT", "alt+u/i"))
         elif isinstance(focused_widget, UsagePanel):
             # Usage pane focused
             tab_names = ["Usage", "Stats", "Tools"]
@@ -460,7 +531,7 @@ class LazyAgent(App):
     def action_resume_agent(self) -> None:
         self._spawn_with_flag(resume=True)
 
-    async def action_stop_agent(self) -> None:
+    def action_stop_agent(self) -> None:
         worktree = self._get_selected_worktree()
         if worktree is None:
             self.notify("No worktree selected", severity="warning")
@@ -472,13 +543,40 @@ class LazyAgent(App):
             self.notify("No running agent in this worktree", severity="warning")
             return
 
-        # stop() cancels recv before disconnect fires, so update state directly.
-        state = self._get_agent_state(worktree.path)
-        state.status = AgentStatus.NO_AGENT
-        state.last_output_time = None
-        self.query_one(WorktreeList).update_agent_state(worktree.path, state)
-        await panel.cleanup_agent()
-        self.notify("Agent stopped")
+        async def on_confirm(ok: bool) -> None:
+            if not ok:
+                return
+            state = self._get_agent_state(worktree.path)
+            state.status = AgentStatus.NO_AGENT
+            state.last_output_time = None
+            self.query_one(WorktreeList).update_agent_state(worktree.path, state)
+            center = self.query_one(CenterPanel)
+            panel = center.get_panel(worktree.path)
+            if panel:
+                await panel.cleanup_agent()
+            self.notify("Agent stopped")
+            self._update_key_hints(self.focused)
+
+        self.push_screen(
+            _StopConfirmModal(worktree.display_label),
+            callback=on_confirm,
+        )
+
+    def _cycle_worktree(self, delta: int) -> None:
+        """Cycle worktree selection by delta (+1/-1), staying on current pane."""
+        if not self.worktrees:
+            return
+        wt_list = self.query_one(WorktreeList)
+        current = wt_list.index or 0
+        new_idx = (current + delta) % len(self.worktrees)
+        wt_list.index = new_idx
+        # The highlighted event will update _selected_worktree and switch panel
+
+    def action_prev_worktree(self) -> None:
+        self._cycle_worktree(-1)
+
+    def action_next_worktree(self) -> None:
+        self._cycle_worktree(1)
 
     def action_focus_sidebar(self) -> None:
         self._current_focus_pane = 1
