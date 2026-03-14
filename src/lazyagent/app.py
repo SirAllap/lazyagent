@@ -48,7 +48,7 @@ class LazyAgent(App):
     #main-area {
         height: 1fr;
         layout: horizontal;
-        padding-bottom: 1;
+        padding-bottom: 0;
     }
     #sidebar {
         width: 36;
@@ -101,6 +101,8 @@ class LazyAgent(App):
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
         Binding("s", "spawn_agent", "Spawn"),
+        Binding("S", "continue_agent", show=False),
+        Binding("R", "resume_agent", show=False),
         Binding("x", "stop_agent", "Stop"),
         Binding("c", "create_worktree", "Create"),
         Binding("d", "remove_worktree", "Remove"),
@@ -198,6 +200,8 @@ class LazyAgent(App):
 
             if not has_agent:
                 hints.append(_hint("Spawn", "s"))
+                hints.append(_hint("Continue", "S"))
+                hints.append(_hint("Resume", "R"))
             else:
                 hints.append(_hint("Stop", "x"))
 
@@ -425,6 +429,37 @@ class LazyAgent(App):
 
         self.push_screen(SpawnModal(worktree.display_label), on_spawn_dismiss)
 
+    def _spawn_with_flag(self, resume: bool = False, continue_last: bool = False) -> None:
+        worktree = self._get_selected_worktree()
+        if worktree is None:
+            self.notify("No worktree selected", severity="warning")
+            return
+        center = self.query_one(CenterPanel)
+        panel = center.get_panel(worktree.path)
+        if panel and panel.has_agent:
+            self.notify("Agent already running in this worktree", severity="warning")
+            return
+
+        async def on_dismiss(result: bool | None) -> None:
+            if result is not None and worktree is not None:
+                center = self.query_one(CenterPanel)
+                panel = center.switch_to(worktree.path)
+                await panel.spawn_agent(
+                    skip_permissions=result,
+                    agent_provider=self._config.agent.provider,
+                    resume=resume,
+                    continue_last=continue_last,
+                )
+
+        label = "Continue" if continue_last else "Resume"
+        self.push_screen(SpawnModal(worktree.display_label, title=f"{label} agent in"), on_dismiss)
+
+    def action_continue_agent(self) -> None:
+        self._spawn_with_flag(continue_last=True)
+
+    def action_resume_agent(self) -> None:
+        self._spawn_with_flag(resume=True)
+
     async def action_stop_agent(self) -> None:
         worktree = self._get_selected_worktree()
         if worktree is None:
@@ -449,7 +484,7 @@ class LazyAgent(App):
         self._current_focus_pane = 1
         self.query_one(WorktreeList).focus()
 
-    def action_focus_agent(self) -> None:
+    def action_focus_agent(self, auto_spawn: bool = True) -> None:
         self._current_focus_pane = 2
         wt = self._get_selected_worktree()
         if not wt:
@@ -460,7 +495,10 @@ class LazyAgent(App):
             if panel.agent_terminal:
                 panel.agent_terminal.focus()
             else:
-                self.action_spawn_agent()
+                try:
+                    panel.query_one("#agent-placeholder").focus()
+                except Exception:
+                    pass
 
     def action_focus_diff(self) -> None:
         self._current_focus_pane = 3
@@ -496,27 +534,32 @@ class LazyAgent(App):
 
     _PANE_ACTIONS = ["focus_sidebar", "focus_agent", "focus_diff", "focus_terminal", "focus_usage"]
 
+    def _focus_pane(self, index: int) -> None:
+        """Focus a pane by index (1-based), without auto-spawning modals."""
+        action = self._PANE_ACTIONS[index - 1]
+        fn = getattr(self, f"action_{action}")
+        if action == "focus_agent":
+            fn(auto_spawn=False)
+        else:
+            fn()
+
     def action_next_pane(self) -> None:
         n = len(self._PANE_ACTIONS)
-        next_p = (self._current_focus_pane % n) + 1
-        getattr(self, f"action_{self._PANE_ACTIONS[next_p - 1]}")()
+        self._focus_pane((self._current_focus_pane % n) + 1)
 
     # Vertical mapping: top row panes ↔ bottom row panes
     _UP_MAP = {4: 2, 5: 3, 1: 1, 2: 2, 3: 3}    # terminal→agent, usage→diff
     _DOWN_MAP = {1: 1, 2: 4, 3: 5, 4: 4, 5: 5}   # agent→terminal, diff→usage
 
     def action_pane_up(self) -> None:
-        target = self._UP_MAP.get(self._current_focus_pane, 2)
-        getattr(self, f"action_{self._PANE_ACTIONS[target - 1]}")()
+        self._focus_pane(self._UP_MAP.get(self._current_focus_pane, 2))
 
     def action_pane_down(self) -> None:
-        target = self._DOWN_MAP.get(self._current_focus_pane, 4)
-        getattr(self, f"action_{self._PANE_ACTIONS[target - 1]}")()
+        self._focus_pane(self._DOWN_MAP.get(self._current_focus_pane, 4))
 
     def action_prev_pane(self) -> None:
         n = len(self._PANE_ACTIONS)
-        prev_p = ((self._current_focus_pane - 2) % n) + 1
-        getattr(self, f"action_{self._PANE_ACTIONS[prev_p - 1]}")()
+        self._focus_pane(((self._current_focus_pane - 2) % n) + 1)
 
     def _has_running_agents(self) -> bool:
         active = {AgentStatus.RUNNING, AgentStatus.WAITING, AgentStatus.POSSIBLY_HANGED}
