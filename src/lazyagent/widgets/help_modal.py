@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -24,8 +25,12 @@ _KEYBINDINGS: list[tuple[str | None, str, str]] = [
 
     # Agents
     (None, "── Agents ──", ""),
-    ("s", "Spawn agent in selected worktree",
-     "Launch the configured agent (claude/codex/gemini) in the selected worktree."),
+    ("s", "Spawn new agent",
+     "Launch a fresh agent session in the selected worktree."),
+    ("S", "Continue last conversation",
+     "Resume the most recent conversation with --continue flag."),
+    ("R", "Resume a session",
+     "Resume and pick from previous sessions with --resume flag."),
     ("x", "Stop agent in selected worktree",
      "Send kill signal to the running agent process."),
     ("alt+x", "Detach from agent / exit terminal",
@@ -176,6 +181,19 @@ class HelpModal(ModalScreen[None]):
             desc_widget.update(event.item.description)
         else:
             desc_widget.update("")
+
+    _NAV_ACTIONS = {
+        "alt+h": "action_prev_pane",
+        "alt+l": "action_next_pane",
+        "alt+k": "action_pane_up",
+        "alt+j": "action_pane_down",
+    }
+
+    def on_key(self, event: events.Key) -> None:
+        action = self._NAV_ACTIONS.get(event.key)
+        if action:
+            self.dismiss(None)
+            getattr(self.app, action)()
 
     def action_close(self) -> None:
         self.dismiss(None)

@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
+
+_NAV_ACTIONS = {
+    "alt+h": "action_prev_pane",
+    "alt+l": "action_next_pane",
+    "alt+k": "action_pane_up",
+    "alt+j": "action_pane_down",
+}
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -60,6 +68,12 @@ class ConfirmModal(ModalScreen[bool]):
 
     def action_confirm(self) -> None:
         self.dismiss(True)
+
+    def on_key(self, event: events.Key) -> None:
+        action = _NAV_ACTIONS.get(event.key)
+        if action:
+            self.dismiss(False)
+            getattr(self.app, action)()
 
     def action_deny(self) -> None:
         self.dismiss(False)
