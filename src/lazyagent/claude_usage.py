@@ -1,8 +1,8 @@
 """Claude Code usage statistics — reads local JSONL session logs.
 
 Provides today's token stats, model breakdown, tool counts, and cost
-estimates without any API calls.  Optionally reads the waybar cache
-for session/weekly usage percentages when available.
+estimates without any API calls.  Reads the lazyagent usage cache
+(populated by usage_fetcher) for session/weekly usage percentages.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from typing import Optional
 
 
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
-WAYBAR_CACHE = Path("/tmp/waybar_claude_usage.json")
 
 # Per-million-token pricing: (input, output, cache_read, cache_write)
 _MODEL_PRICING = {
@@ -70,7 +69,7 @@ class UsageData:
     week_sonnet_budget: Optional[BudgetInfo] = None
     tokens: Optional[TokenStats] = None
     rate_limited: bool = False
-    cache_age: int = 0  # seconds since last waybar fetch
+    cache_age: int = 0  # seconds since last usage fetch
 
 
 def short_model(model: str) -> str:
@@ -212,15 +211,6 @@ def compute_tokens_for_date(day_offset: int = 0) -> Optional[TokenStats]:
     return stats if stats.message_count > 0 else None
 
 
-def read_waybar_cache() -> tuple[Optional[dict], int]:
-    """Read waybar usage cache if available. Returns (data, age_seconds)."""
-    try:
-        data = json.loads(WAYBAR_CACHE.read_text())
-        ts = data.get("timestamp", 0) / 1000
-        age = int(time.time() - ts)
-        return data, age
-    except Exception:
-        return None, 0
 
 
 def _parse_section(raw: Optional[dict]) -> Optional[UsageSection]:
@@ -346,8 +336,9 @@ def get_usage_data(day_offset: int = 0) -> UsageData:
     # Token stats from JSONL files
     data.tokens = compute_tokens_for_date(day_offset)
 
-    # Usage percentages from waybar cache (if available)
-    wb, age = read_waybar_cache()
+    # Usage percentages from lazyagent's own usage cache
+    from lazyagent.usage_fetcher import read_cache
+    wb, age = read_cache()
     if wb:
         data.cache_age = age
         data.rate_limited = wb.get("error") == "rate_limited"

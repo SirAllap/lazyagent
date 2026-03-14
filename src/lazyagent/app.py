@@ -28,16 +28,16 @@ from lazyagent.widgets.worktree_list import WorktreeList, WorktreeListItem
 from lazyagent.worktree_manager import WorktreeManager, WorktreeManagerError, find_repo_root
 
 def _system_color_scheme() -> str | None:
-    """Detect system preferred color scheme via gsettings (GNOME/GTK).
+    """Detect system preferred color scheme.
 
+    Tries multiple platform-specific methods in order.
     Returns 'dark', 'light', or None if undetectable.
     """
+    # GNOME / GTK (Linux)
     try:
         result = subprocess.run(
             ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
-            capture_output=True,
-            text=True,
-            timeout=1,
+            capture_output=True, text=True, timeout=1,
         )
         if result.returncode == 0:
             val = result.stdout.strip().strip("'")
@@ -47,6 +47,34 @@ def _system_color_scheme() -> str | None:
                 return "light"
     except Exception:
         pass
+
+    # macOS
+    try:
+        result = subprocess.run(
+            ["defaults", "read", "-g", "AppleInterfaceStyle"],
+            capture_output=True, text=True, timeout=1,
+        )
+        if result.returncode == 0 and "dark" in result.stdout.lower():
+            return "dark"
+        if result.returncode != 0:  # key absent means light mode
+            return "light"
+    except Exception:
+        pass
+
+    # KDE Plasma
+    try:
+        result = subprocess.run(
+            ["kreadconfig5", "--group", "General", "--key", "ColorScheme"],
+            capture_output=True, text=True, timeout=1,
+        )
+        if result.returncode == 0:
+            if "dark" in result.stdout.lower():
+                return "dark"
+            if result.stdout.strip():
+                return "light"
+    except Exception:
+        pass
+
     return None
 
 
@@ -433,6 +461,23 @@ class LazyAgent(App):
 
     @work(thread=True)
     def _refresh_usage_panel(self) -> None:
+        try:
+            for panel in self.query(UsagePanel):
+                panel.refresh_data()
+        except Exception:
+            pass
+        self._maybe_refresh_usage_cache()
+
+    @work(thread=True, exclusive=True, group="usage_fetch")
+    def _maybe_refresh_usage_cache(self) -> None:
+        """Fetch fresh /usage data if the cache is stale (>120s)."""
+        from lazyagent.usage_fetcher import cache_age, fetch_and_cache
+        if cache_age() < 120:
+            return
+        fetch_and_cache()
+        self.call_from_thread(self._refresh_usage_panel_ui)
+
+    def _refresh_usage_panel_ui(self) -> None:
         try:
             for panel in self.query(UsagePanel):
                 panel.refresh_data()
