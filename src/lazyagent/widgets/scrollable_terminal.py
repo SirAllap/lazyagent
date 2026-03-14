@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from collections import deque
 
 import pyte
@@ -54,6 +55,14 @@ class ScrollbackScreen(pyte.Screen):
     ) -> None:
         super().__init__(columns, lines)
         self.scrollback: deque[dict[int, Char]] = deque(maxlen=max_scrollback)
+        # Timestamp until which index() should NOT append to scrollback.
+        # Set after a PTY resize so that the agent's SIGWINCH redraw doesn't
+        # duplicate history already in the scrollback buffer.
+        self._scrollback_suppress_until: float = 0.0
+
+    def suppress_scrollback_for(self, seconds: float) -> None:
+        """Block index() from appending to scrollback for *seconds*."""
+        self._scrollback_suppress_until = time.monotonic() + seconds
 
     def set_margins(self, *args, **kwargs):
         """TERM=linux compat — strip the ``private`` kwarg that pyte passes."""
@@ -67,15 +76,26 @@ class ScrollbackScreen(pyte.Screen):
             # row 0 (full-screen scroll).  When an app sets custom margins
             # (DECSTBM), lines scrolling within a sub-region should not be
             # saved — matching the behaviour of kitty, xterm, etc.
-            self.scrollback.append(dict(self.buffer[0]))
+            #
+            # Also skip capture during the suppression window that follows a
+            # PTY resize.  SIGWINCH causes the agent to redraw its full
+            # output; without suppression that redraw pushes the entire
+            # conversation through index() again, doubling the scrollback.
+            if time.monotonic() > self._scrollback_suppress_until:
+                self.scrollback.append(dict(self.buffer[0]))
         super().index()
 
     def resize(self, lines=None, columns=None):
-        """Capture lines that would be dropped when the screen shrinks in height."""
+        """Save rows dropped when the screen shrinks so they stay in scrollback.
+
+        pyte's resize() calls delete_lines() which bypasses index(), so rows
+        clipped from the top would be silently lost.  We capture them first.
+        The suppression window set by suppress_scrollback_for() does NOT apply
+        here — this path is a direct append, not going through index(), so it
+        is not affected by the SIGWINCH-redraw suppression.
+        """
         lines = lines or self.lines
         if lines < self.lines:
-            # pyte's resize() will call delete_lines() for the top rows,
-            # bypassing index().  Save those rows to scrollback ourselves.
             drop = self.lines - lines
             for y in range(drop):
                 self.scrollback.append(dict(self.buffer[y]))
@@ -122,6 +142,11 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         self.ncol = _DEFAULT_COLS
         self.nrow = _DEFAULT_ROWS
         self.mouse_tracking = False
+        # Suppress scrollback capture for 1 s after each PTY resize to
+        # prevent SIGWINCH-triggered redraws from duplicating content in the
+        # scrollback buffer.  Both agent CLIs (full-screen redraw) and
+        # interactive shells (zsh/bash prompt redraw) do this on SIGWINCH.
+        self._suppress_scrollback_on_resize: bool = True
 
         # PTY emulator (created in start())
         self.emulator: PtyEmulator | None = None
@@ -248,8 +273,14 @@ class ScrollableTerminal(ScrollView, can_focus=True):
                     # region, and scroll_end would compute a bogus
                     # max_scroll_y.  on_show() catches up when the widget
                     # becomes visible again.
+                    # Always keep virtual_size current so scrollbar gutter
+                    # width is stable — stale virtual_size causes the
+                    # scrollbar to flicker on/off when the pane re-appears,
+                    # which changes scrollable_content_region.width by 1 col,
+                    # which triggers a spurious set_size → SIGWINCH → agent
+                    # redraws its full history → duplicate scrollback.
+                    self._update_virtual_size()
                     if self.size.height > 0:
-                        self._update_virtual_size()
                         self.refresh()
                         if was_at_bottom:
                             self.scroll_end(
@@ -693,18 +724,51 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         if self.emulator is None:
             return
 
-        ncol = self.scrollable_content_region.width or self.size.width
-        nrow = self.scrollable_content_region.height or self.size.height
+        # Use event.size (the widget's layout dimensions) rather than
+        # scrollable_content_region.  The scrollable_content_region shrinks
+        # by scrollbar_size_vertical (1 col) when the vertical scrollbar is
+        # visible, and by 0 when it isn't.  Because virtual_size updates are
+        # async, the scrollbar can briefly flicker on/off as the pane
+        # becomes visible, making ncol oscillate between W and W-1 on every
+        # show/hide cycle.  event.size is the stable layout size unaffected
+        # by scrollbar gutter.
+        ncol = event.size.width
+        nrow = event.size.height
 
         # Skip zero dimensions — happens when widget is hidden by
         # ContentSwitcher.  Sending 0×0 to the PTY would cause the child
-        # process to format output for a zero-column terminal, corrupting
-        # the scrollback captured during that window.
+        # process to format output for a zero-column terminal.
         if ncol == 0 or nrow == 0:
+            return
+
+        # Skip when the terminal is in a collapsed state.  In "agent-zoomed"
+        # mode the CSS shrinks #bottom-row / #terminal-pane to height 3,
+        # leaving only 1 row for the terminal widget after borders.  If we
+        # allowed pyte to shrink to 1 row it would push all visible content
+        # into scrollback; when the pane expands again the screen is blank.
+        # Any height ≤ 3 is unusable for real work, so skip the resize and
+        # keep pyte at its current (full) dimensions.  The PTY will receive
+        # the correct size again when the pane returns to its normal height.
+        if nrow <= 3:
+            return
+
+        # Tolerate ±1 row noise from flex layout rounding on show/hide
+        # cycles.  Columns are compared exactly — a column change means
+        # text must rewrap, so the PTY must be notified.
+        if ncol == self.ncol and abs(nrow - self.nrow) <= 1:
             return
 
         self.ncol = ncol
         self.nrow = nrow
         await self.send_queue.put(["set_size", self.nrow, self.ncol])
+        # Capture rows dropped by the shrink BEFORE opening the suppress
+        # window — resize() must run first so the dropped rows land in
+        # scrollback before SIGWINCH-triggered redraws are blocked.
         self._screen.resize(self.nrow, self.ncol)
+        # Suppress scrollback capture for 1 s after the resize.  Both agent
+        # CLIs (full-screen redraw) and interactive shells (zsh/bash prompt
+        # redraw) re-emit content on SIGWINCH, which would push lines through
+        # index() again and duplicate scrollback history.
+        if self._suppress_scrollback_on_resize:
+            self._screen.suppress_scrollback_for(1.0)
         self._update_virtual_size()
