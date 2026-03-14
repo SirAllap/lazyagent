@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from textual import events
 from textual.binding import Binding
 from textual.widgets import ListItem, ListView, Static
@@ -23,6 +25,7 @@ class WorktreeListItem(ListItem):
         self._git_status: GitStatus | None = None
         self._compact = False
         self._compact_index = 0
+        self._blink_handle: asyncio.TimerHandle | None = None
         if worktree.is_main:
             self.add_class("--main")
 
@@ -91,6 +94,36 @@ class WorktreeListItem(ListItem):
         self._compact = compact
         self._refresh_label()
 
+    def set_attention(self, on: bool) -> None:
+        """Start or stop the attention blink."""
+        if on:
+            self.add_class("--attention")
+            self._start_blink()
+        else:
+            self._stop_blink()
+            self.remove_class("--attention")
+
+    def _start_blink(self) -> None:
+        self._stop_blink()
+        loop = asyncio.get_running_loop()
+
+        def _toggle() -> None:
+            if self.has_class("--attention"):
+                self.toggle_class("--attention")
+                self._blink_handle = loop.call_later(0.6, _toggle_back)
+
+        def _toggle_back() -> None:
+            if not self.has_class("--attention"):
+                self.add_class("--attention")
+            self._blink_handle = loop.call_later(0.6, _toggle)
+
+        self._blink_handle = loop.call_later(0.6, _toggle)
+
+    def _stop_blink(self) -> None:
+        if self._blink_handle:
+            self._blink_handle.cancel()
+            self._blink_handle = None
+
     def update_agent_state(self, state: AgentState) -> None:
         self._agent_state = state
         self._refresh_label()
@@ -128,6 +161,14 @@ class WorktreeList(ListView):
         background: transparent;
         border: round $accent;
         color: $text;
+    }
+    WorktreeList WorktreeListItem.--attention {
+        background: $warning 30%;
+        border: round $warning;
+    }
+    WorktreeList WorktreeListItem.--attention.-highlight {
+        background: $warning 30%;
+        border: round $warning;
     }
     """
 

@@ -153,6 +153,14 @@ class LazyAgent(App):
     .agent-zoomed WorktreeList WorktreeListItem.-highlight {
         border: round $accent;
     }
+    .agent-zoomed WorktreeList WorktreeListItem.--attention {
+        background: $warning 30%;
+        border: round $warning;
+    }
+    .agent-zoomed WorktreeList WorktreeListItem.--attention.-highlight {
+        background: $warning 30%;
+        border: round $warning;
+    }
     .agent-zoomed #bottom-row {
         height: 3;
     }
@@ -423,6 +431,8 @@ class LazyAgent(App):
         center = self.query_one(CenterPanel)
         if event.item is not None and isinstance(event.item, WorktreeListItem):
             self._selected_worktree = event.item.worktree
+            # Clear attention when user selects this worktree
+            event.item.set_attention(False)
             center.switch_to(event.item.worktree.path)
             self._push_git_status_to_selected_panel()
             self._refresh_selected_diff()
@@ -433,15 +443,26 @@ class LazyAgent(App):
 
     # --- Agent message handlers ---
 
+    def _set_attention(self, worktree_path: str) -> None:
+        """Blink the worktree item if it's not currently selected."""
+        if self._selected_worktree and self._selected_worktree.path == worktree_path:
+            return
+        wt_list = self.query_one(WorktreeList)
+        for child in wt_list.children:
+            if isinstance(child, WorktreeListItem) and child.worktree.path == worktree_path:
+                child.set_attention(True)
+                break
+
     def on_agent_status_changed(self, event: AgentStatusChanged) -> None:
         state = self._get_agent_state(event.worktree_path)
         state.status = event.status
         if event.status == AgentStatus.RUNNING:
-            # Update last_output_time from the terminal
             center = self.query_one(CenterPanel)
             panel = center.get_panel(event.worktree_path)
             if panel and panel.agent_terminal:
                 state.last_output_time = panel.agent_terminal.last_output_time
+        elif event.status == AgentStatus.WAITING:
+            self._set_attention(event.worktree_path)
         self.query_one(WorktreeList).update_agent_state(event.worktree_path, state)
         self._update_key_hints(self.focused)
 
@@ -450,6 +471,7 @@ class LazyAgent(App):
         state.status = AgentStatus.NO_AGENT
         state.last_output_time = None
         self.query_one(WorktreeList).update_agent_state(event.worktree_path, state)
+        self._set_attention(event.worktree_path)
         self._update_key_hints(self.focused)
 
         center = self.query_one(CenterPanel)
