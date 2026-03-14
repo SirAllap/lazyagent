@@ -461,6 +461,20 @@ class ScrollableTerminal(ScrollView, can_focus=True):
         if self.emulator is None:
             return
 
+        # Alt+h/j/k/l → pane navigation (works even inside terminal)
+        _PANE_NAV = {
+            "alt+h": "action_prev_pane",
+            "alt+l": "action_next_pane",
+            "alt+k": "action_pane_up",
+            "alt+j": "action_pane_down",
+        }
+        action = _PANE_NAV.get(event.key)
+        if action:
+            event.stop()
+            event.prevent_default()
+            getattr(self.app, action)()
+            return
+
         if event.key == "alt+x":
             self.app.set_focus(None)
             return

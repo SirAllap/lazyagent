@@ -15,6 +15,8 @@ _KEYBINDINGS: list[tuple[str | None, str, str]] = [
      "Press 1–5 to jump directly to a specific pane."),
     ("h / l", "Prev / next pane",
      "Cycle focus between panes left and right."),
+    ("Alt+h/j/k/l", "Move panes (works inside terminals)",
+     "Navigate between panes even from agent or terminal — no need to detach first."),
     ("j / k", "Move down / up",
      "Move selection in worktree list or scroll in focused pane."),
     ("[ / ]", "Previous / next tab",

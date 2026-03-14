@@ -112,6 +112,10 @@ class LazyAgent(App):
         Binding("question_mark", "help", "Help"),
         Binding("l", "next_pane", show=False),
         Binding("h", "prev_pane", show=False),
+        Binding("alt+l", "next_pane", show=False, priority=True),
+        Binding("alt+h", "prev_pane", show=False, priority=True),
+        Binding("alt+k", "pane_up", show=False, priority=True),
+        Binding("alt+j", "pane_down", show=False, priority=True),
     ]
 
     def __init__(self, repo_path: str | None = None) -> None:
@@ -173,9 +177,11 @@ class LazyAgent(App):
         if isinstance(focused_widget, MonitoredTerminal):
             # Agent pane focused
             hints.append(_hint("Detach", "alt+x"))
+            hints.append(_hint("Navigate", "alt+hjkl"))
         elif isinstance(focused_widget, ScrollableTerminal):
             # Terminal pane focused
             hints.append(_hint("Exit terminal", "alt+x"))
+            hints.append(_hint("Navigate", "alt+hjkl"))
         elif isinstance(focused_widget, UsagePanel):
             # Usage pane focused
             tab_names = ["Usage", "Stats", "Tools"]
@@ -184,11 +190,11 @@ class LazyAgent(App):
             hints.append(_hint("Prev tab", "\["))
             hints.append(_hint("Next tab", "]"))
             hints.append(_hint("Scroll", "j/k"))
-            hints.append(_hint("Navigate", "h/l"))
+            hints.append(_hint("Navigate", "alt+hjkl"))
         else:
             # Sidebar, diff, or other pane
-            hints.append(_hint("Navigate", "h/l"))
             hints.append(_hint("Up/Down", "j/k"))
+            hints.append(_hint("Navigate", "alt+hjkl"))
 
             if not has_agent:
                 hints.append(_hint("Spawn", "s"))
@@ -494,6 +500,18 @@ class LazyAgent(App):
         n = len(self._PANE_ACTIONS)
         next_p = (self._current_focus_pane % n) + 1
         getattr(self, f"action_{self._PANE_ACTIONS[next_p - 1]}")()
+
+    # Vertical mapping: top row panes ↔ bottom row panes
+    _UP_MAP = {4: 2, 5: 3, 1: 1, 2: 2, 3: 3}    # terminal→agent, usage→diff
+    _DOWN_MAP = {1: 1, 2: 4, 3: 5, 4: 4, 5: 5}   # agent→terminal, diff→usage
+
+    def action_pane_up(self) -> None:
+        target = self._UP_MAP.get(self._current_focus_pane, 2)
+        getattr(self, f"action_{self._PANE_ACTIONS[target - 1]}")()
+
+    def action_pane_down(self) -> None:
+        target = self._DOWN_MAP.get(self._current_focus_pane, 4)
+        getattr(self, f"action_{self._PANE_ACTIONS[target - 1]}")()
 
     def action_prev_pane(self) -> None:
         n = len(self._PANE_ACTIONS)
